@@ -7,7 +7,6 @@
 # TODO Fixa argument parsing och felmeddelanden
 # TODO mer test i fulltest?
 # TODO route test till test servrar?
-# TODO Bättre kommentering på rörig kod
 # TODO Hämta routes från servrar i fulltest?
 # TODO Ändra slowtest till flera servrar och jämför resultat, mer färgning till grc, möjligen <>
 # TODO getcspeed innan slowtest, använd slowspeed eller egen variabel
