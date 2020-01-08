@@ -2,7 +2,7 @@
 # shellcheck disable=SC1090  #can't follow non constant source
 # shellcheck disable=SC2034  #unused variables
 
-# @note TODOs
+#? @note TODOs
 
 # TODO Fixa argument parsing och felmeddelanden
 # TODO mer test i fulltest?
