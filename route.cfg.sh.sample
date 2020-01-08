@@ -1,0 +1,7 @@
+#!/bin/bash
+#? List of routes to test with mtr
+#? Format: routelista[name]=url
+routelista[Google]=google.com
+routelista[Reddit]=reddit.com
+routelista[Twitch]=twitch.tv
+routelista[Amazon]=amazon.com
