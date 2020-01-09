@@ -870,7 +870,6 @@ getservers() { #* Gets servers from speedtest-cli and optionally saves to file
 			num=$((num+1))
 		done
 	else
-		echo "#!/bin/bash" > "$servercfg"
 		echo "#? Automatically generated server list, servers won't be refreshed at start if this file exists" >> "$servercfg"
 		writelog 3 "\nUsing servers:"
 		speedlist=$($speedtest_cli --list | head -$((numservers+1)) | sed 1d)
