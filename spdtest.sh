@@ -88,9 +88,15 @@ declare -a rndbkp
 declare -a errorlist
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
+
 #? Colors
-reset="\e[0m"; bold="\e[1m"; underline="\e[4m"; blink="\e[5m"; reverse="\e[7m"; concealed="\e[8m"
-dark="\e[2m"; italic="\e[3m"; rapidblink="\e[6m"; strikethrough="\e[9m"
+reset="\e[0m"
+bold="\e[1m"
+underline="\e[4m"
+blink="\e[5m"
+reverse="\e[7m"
+dark="\e[2m"
+italic="\e[3m"
 
 black="\e[30m"
 red="\e[31m"
@@ -100,33 +106,6 @@ blue="\e[34m"
 magenta="\e[35m"
 cyan="\e[36m"
 white="\e[37m"
-
-on_black="\e[40m"
-on_red="\e[41m"
-on_green="\e[42m"
-on_yellow="\e[43m"
-on_blue="\e[44m"
-on_magenta="\e[45m"
-on_cyan="\e[46m"
-on_white="\e[47m"
-
-bright_black="\e[30;90m"
-bright_red="\e[31;91m"
-bright_green="\e[32;92m"
-bright_yellow="\e[33;93m"
-bright_blue="\e[34;94m"
-bright_magenta="\e[35;95m"
-bright_cyan="\e[36;96m"
-bright_white="\e[37;97m"
-
-on_bright_black="\e[40;100m"
-on_bright_red="\e[41;101m"
-on_bright_green="\e[42;102m"
-on_bright_yellow="\e[43;103m"
-on_bright_blue="\e[44;104m"
-on_bright_magenta="\e[45;105m"
-on_bright_cyan="\e[46;106m"
-on_bright_white="\e[47;107m"
 
 #? End variables -------------------------------------------------------------------------------------------------------------------->
 
