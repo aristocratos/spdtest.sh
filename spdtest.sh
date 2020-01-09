@@ -16,6 +16,9 @@
 # TODO getservers() getcspeed inann, error check och wait animation
 # TODO ssh controlmaster, server, client
 # TODO grc funtion i bash?
+# TODO plot speedgraphs overtime in UI
+# TODO translate remaining swedish...
+# TODO options menu, window box function
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
@@ -857,14 +860,6 @@ getservers() { #* Gets servers from speedtest-cli and optionally saves to file
 		source "$servercfg"
 		writelog 3 "\nUsing servers from $servercfg"
 		local num=1
-		#servlst="$(cat $servercfg | sed 1d)"
-		#for line in $servlst; do
-		#	servlen=$((${#line} - 24))
-		#	servdesc=${line:(-servlen)}
-		#	servdesc=${servdesc# }
-		#	echo "$num. $servdesc"
-		#	num=$((num+1))
-		#done
 		for tl in "${testlistdesc[@]}"; do
 			writelog 3 "$num. $tl"
 			num=$((num+1))
