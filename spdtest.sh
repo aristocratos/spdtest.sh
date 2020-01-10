@@ -13,7 +13,6 @@
 # TODO fixa fel keypress i inputwait, typ esc koder
 # TODO makefile till getIdle och bättre dep lista
 # TODO extern config och spara till config?
-# TODO getservers() getcspeed inann, error check och wait animation
 # TODO ssh controlmaster, server, client
 # TODO grc funtion i bash?
 # TODO plot speedgraphs overtime in UI
@@ -294,8 +293,9 @@ ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing
 		rm $secfile >/dev/null 2>&1
 		rm $speedfile >/dev/null 2>&1
 		rm $routefile >/dev/null 2>&1
-		if [[ -n $2 ]]; then echo -e "$2"; fi
-		exit "${1:-0}"
+		#if [[ -n $2 ]]; then echo -e "$2"; fi
+		exit 0
+		#exit "${1:-0}"
 	fi
 }
 
@@ -376,12 +376,6 @@ getcspeed() { #* Get current $net_device bandwith usage, arguments: <down/up/bot
 	echo $(((SPEED*unitop)>>20))
 }
 
-testspeed_cli() { #* Get data from speedtest-cli and write to shared memory, meant to be run in background, arguments: <server> [<flags>]
-	# shellcheck disable=SC2086
-	speed=$($speedtest_cli --server $1 $2 --json 2>&1)
-	echo "$speed" > "$speedfile"
-}
-
 test_type_checker() { #* Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
 		stype=$(echo "$speedstring" | jq -r '.type')
@@ -448,7 +442,7 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 	drawm
 }
 
-testspeed() { #* V2.0 Using official Ookla speedtest client
+testspeed() { #* Using official Ookla speedtest client
 	local mode=${1:-down}
 	local max_tests cs ce cb
 	local tests=0
@@ -640,115 +634,7 @@ testspeed() { #* V2.0 Using official Ookla speedtest client
 	testing=0
 }
 
-oldslowtest() { #* Test random server from server list for slow speed, if detected check x other random servers
-	unset 'errorlist[@]'
-	RANDOM=$$$(date +%s)
-	testing=1
-	err_retry=0
-	x=0
-	xl=1
-	if [[ ${#testlista[@]} -gt 1 && $slowgoing == 0 ]]; then
-		rnum="$RANDOM % ${#testlista[@]}"
-		tl=${testlista[$rnum]}
-	elif [[ ${#testlista[@]} -gt 1 && $slowgoing == 1 ]]; then
-		rnum=${rndbkp[$xl]}
-		tl=${testlista[$rnum]}
-	else
-		tl=${testlista[1]}
-		rnum=1
-	fi
-	while [[ $x -le $slowretry ]]; do
-		testspeed_cli"$tl" --no-upload &
-		speedpid="$!"
-		if [[ $x -ge 1 ]]; then numstat="<-- Attempt $((x+1))"; else numstat=""; fi
-		writelog 9 "${bold}${green}Testing${reset}     \t  ${testlistdesc[$rnum]} $numstat"
-		tput cuu1; drawm "Testing..." "$green"
-		waiting $speedpid "speed" "down"
-		if [[ $broken == 1 ]]; then slowerror=1; testing=0; return; fi
-		speed=$(<$speedfile)
-		if [[ ${speed::25} == "ERROR: No matched servers" ]]; then
-			err_retry=$((err_retry+1))
-			errorlist+=("$tl")
-			writelog 2 "          ERROR\t  ${testlistdesc[$rnum]}   ERROR: Couldn't test server!"
-			if [[ ${#testlista[@]} -gt 1 && $err_retry -lt ${#testlista[@]} ]]; then
-				tl2=$tl
-				while [[ $(contains "${errorlist[@]}" "$tl2") ]]; do
-					rnum="$RANDOM % ${#testlista[@]}"
-					tl2=${testlista[$rnum]}
-				done
-				tl=$tl2
-			else
-				writelog 2 "ERROR Couldn't get current speed from servers"
-				slowerror=1
-				testing=0
-				return
-			fi
-		elif [[ ${speed::5} == "ERROR" ]]; then
-			writelog 1 "Fatal error in speedtest"
-			writelog 1 "$speed"
-			testing=0
-			ctrl_c 1 "Fatal error in speedtest\n$speed"
-		else
-			down=$(echo "$speed" | jq '.download' | cut -d "." -f 1)
-			down=$((down >> 20))
-			if [[ $slowgoing == 0 ]]; then rndbkp[$xl]="$rnum"; xl=$((xl+1)); fi
-			if [[ $down -le $slowspeed ]]; then downst="FAIL!"; else downst="OK!"; fi
-			if [[ $tdate != $(date +%d) ]]; then tdate="$(date +%d)"; timestamp="($(date +%H:%M\)\ \(%y-%m-%d))"; else timestamp="($(date +%H:%M))"; fi
-			writelog 2 "$down Mbit/s $downst\t  ${testlistdesc[$rnum]} $timestamp $numstat"
-			drawm "Testing..." "$green"
-			if [[ $down -le $slowspeed && ${#testlista[@]} -gt 1 && $x -lt $slowretry && $slowgoing == 0 ]]; then
-				tl2=$tl
-				while [[ $tl2 == "$tl" ]]; do
-					rnum="$RANDOM % ${#testlista[@]}"
-					tl2=${testlista[$rnum]}
-				done
-				tl=$tl2
-				x=$((x+1))
-			elif [[ $down -le $slowspeed && ${#testlista[@]} -gt 1 && $x -lt $slowretry && $slowgoing == 1 ]]; then
-				xl=$((xl+1))
-				rnum=${rndbkp[$xl]}
-				tl=${testlista[$rnum]}
-				x=$((x+1))
-			else
-				x=$((slowretry+1))
-			fi
-		fi
-	done
 
-	lastspeed="$down"
-	testing=0
-}
-
-oldfulltest() { #* Tests to run when download speed is slow
-	testing=1
-	if [[ $slowgoing == 0 && $forcetest == 0 ]]; then
-	writelog 1 "\n<---------------------------------------Slow speed detected!--------------------------------------->"
-	fi
-	writelog 1 "Speedtest start: ($(date +%Y-%m-%d\ %T)), IP: $(myip)"
-	printf "%-12s %-12s %-10s %-10s\n" "Down Mbit/s" "Up Mbit/s" "Ping" "Server" | writelog 1
-	drawm "Running full test..." "$green"
-	x=0
-	for tl in "${testlista[@]}"; do
-		testspeed_cli "$tl" &
-		speedpid="$!"
-		printf "%-12s %-12s %-10s %-10s" "      " "     " "   " "${testlistdesc[$x]}" | writelog 9
-		tput cuu1; drawm "Running full test..." "$green"
-		waiting $speedpid "speed" "both"
-		if [[ $broken == 1 ]]; then break; fi
-		speed=$(<$speedfile)
-		down=$(echo "$speed" | jq '.download' | cut -d "." -f 1)
-		down=$((down >> 20))
-		ping=$(echo "$speed" | jq '.ping' | cut -d "." -f 1)
-		upl=$(echo "$speed" | jq '.upload' | cut -d "." -f 1)
-		upl=$((upl >> 20))
-		printf "%-12s %-12s %-10s %-10s\n" "    $down" "   $upl" " $ping" "${testlistdesc[$x]}" | writelog 1
-		drawm "Running full test..." "$green"
-		x=$((x+1))
-		if [[ $x -ge $numslowservers ]]; then break; fi
-	done
-	# writelog 1 "\n"
-	testing=0
-}
 
 routetest() { #* Test routes with mtr
 	unset 'routelistc[@]'
