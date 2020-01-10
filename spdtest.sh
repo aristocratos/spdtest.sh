@@ -402,6 +402,7 @@ progress() { #* Print progress bar, arguments: <percent> [<"text">] [<text color
 }
 
 precheck_speed() { #* Check current bandwidth usage before slowcheck
+	testing=1
 	local sndvald sndvalu i skip=1
 	local dspeed=0
 	local uspeed=0
@@ -417,6 +418,7 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 		#dspeed=$(getcspeed "down" "$(echo "scale=1; $i / 10" | bc)" "$sndvald"); uspeed=$(getcspeed "up" "$(echo "scale=1; $i / 10" | bc)" "$sndvalu")
 		echo -en "Checking bandwidth usage: ${bold}$(progress "$prc") ${green}DOWN=${white}$dspeed $unit ${red}UP=${white}$uspeed $unit${reset}         \r"
 		sleep 0.1
+		if [[ $broken == 1 ]]; then precheck_status="fail"; testing=0; return; fi
 	done
 	tput el
 	dspeed="$(getcspeed "down" $precheck_samplet "$sndvald")"
@@ -429,6 +431,7 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 		writelog 9 "Checking bandwidth usage: $(progress 100 "FAIL!") DOWN=$dspeed $unit UP=$uspeed $unit\r"; sleep 2; tput cuu1
 		writelog 2 "WARNING: Testing blocked, current bandwidth usage: DOWN=$dspeed $unit UP=$uspeed $unit $(date +%H:%M\ \(%y-%m-%d))"
 	fi
+	testing=0
 	drawm
 }
 
@@ -442,11 +445,6 @@ testspeed() { #* V2.0 Using official Ookla speedtest client
 	unset 'errorlist[@]'
 	RANDOM=$$$(date +%s)
 	testing=1
-
-	if [[ $precheck == "true" && $mode == "down" && $slowgoing == 0 ]]; then
-		precheck_speed
-		if [[ $precheck_status = "fail" ]]; then testing=0; return; fi
-	fi
 
 	if [[ $mode == "full" && $numslowservers -ge ${#testlista[@]} ]]; then max_tests=$((${#testlista[@]}-1))
 	elif [[ $mode == "full" && $numslowservers -lt ${#testlista[@]} ]]; then max_tests=$((numslowservers-1))
@@ -1092,8 +1090,7 @@ startup=0
 
 
 #? Start infinite loop ------------------------------------------------------------------------------------------------------------------> @audit Main loop start
-
-while true; do
+main_loop() {
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idledone == 0 && $startupdetect == 0 ]]; then
 		inputwait "$idletimer"
 	elif [[ $startupdetect == 0 ]]; then
@@ -1106,6 +1103,10 @@ while true; do
 		logrotate
 
 		if [[ $forcetest != 1 && $startupdetect == 0 ]]; then
+			if [[ $precheck == "true" ]]; then
+				precheck_speed
+				if [[ $precheck_status = "fail" ]]; then return; fi
+			fi
 			testspeed "down"
 			drawm
 		fi
@@ -1131,19 +1132,21 @@ while true; do
 					drawm
 				fi
 			fi
-
 		fi
-
-		broken=0
-		startupdetect=0
-		slowerror=0
-		precheck_status=""
-
 	fi
 
 	if [[ $net_status != "up" ]]; then writelog 1 "Interface $net_device is down! ($(date +%H:%M))"; fi
 
+	
+}
+
+while true; do
+	main_loop
 	idlebreak=0
+	precheck_status=""
+	broken=0
+	startupdetect=0
+	slowerror=0
 done
 
 #? End infinite loop --------------------------------------------------------------------------------------------------------------------> @audit Main loop end
