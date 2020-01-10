@@ -1089,7 +1089,7 @@ startup=0
 
 
 
-#? Start infinite loop ------------------------------------------------------------------------------------------------------------------> @audit Main loop start
+#? Start infinite loop ------------------------------------------------------------------------------------------------------------------>
 main_loop() {
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idledone == 0 && $startupdetect == 0 ]]; then
 		inputwait "$idletimer"
@@ -1135,9 +1135,7 @@ main_loop() {
 		fi
 	fi
 
-	if [[ $net_status != "up" ]]; then writelog 1 "Interface $net_device is down! ($(date +%H:%M))"; fi
-
-	
+	if [[ $net_status != "up" ]]; then writelog 1 "Interface $net_device is down! ($(date +%H:%M))"; fi	
 }
 
 while true; do
