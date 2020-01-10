@@ -4,23 +4,20 @@
 
 #? @note TODOs
 
-# TODO Fixa argument parsing och felmeddelanden
-# TODO mer test i fulltest?
-# TODO route test till test servrar?
-# TODO Hämta routes från servrar i fulltest?
-# TODO Ändra slowtest till flera servrar och jämför resultat, mer färgning till grc, möjligen <>
-# TODO getcspeed innan slowtest, använd slowspeed eller egen variabel
-# TODO fixa fel keypress i inputwait, typ esc koder
-# TODO makefile till getIdle och bättre dep lista
-# TODO extern config och spara till config?
+# TODO Fix argument parsing and error messages
+# TODO Change slowtest to multiple servers and compare results
+# TODO fix wrong keypress in inputwait, esc codes etc
+# TODO makefile to getIdle
+# TODO fix up README.md
+# TODO extern config and save to config?
 # TODO ssh controlmaster, server, client
-# TODO grc funtion i bash?
+# TODO grc funtion in bash function?
 # TODO plot speedgraphs overtime in UI
 # TODO translate remaining swedish...
 # TODO options menu, window box function
 # TODO grc, grc.conf, speedtest and speedtest-cli to /dev/shm ?
 # TODO buffer output, enable scrolling in UI
-# TODO mtr procent, mtr count + 
+
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
@@ -124,7 +121,6 @@ command -v $ookla_speedtest >/dev/null 2>&1 || { echo "Error official speedtest 
 command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli not found"; exit 1; }
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
-# TODO Fixa kontroller och mer felargument
 argumenterror() { #* Handles argument errors
 	echo "Error:"
 	case $1 in
@@ -581,8 +577,6 @@ testspeed() { #* Using official Ookla speedtest client
 			
 			if [[ $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss%.*}% packet loss!"; fi
 
-		# TODO Packet loss detected: Lägg till mtr lista ifrån jq '.server.host' , .server.name , .server.location , .server.country , .server.ip, .server.port
-
 			printf "\r"; printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
 			drawm "Running full test" "$red"
 			tests=$((tests+1))
@@ -967,7 +961,7 @@ inputwait() { #* Timer and input loop
 
 debug1() { #! Remove
 	loglevel=0
-	# quiet_start="true"
+	quiet_start="true"
 	getservers
 	while true; do
 		drawm "Debug Mode" "$magenta"
