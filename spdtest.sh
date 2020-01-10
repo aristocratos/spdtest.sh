@@ -28,16 +28,16 @@ unit="mbit"  			#* Valid values are "mbit" and "mbyte"
 slowspeed=30 			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
 numservers=30 			#* How many of the closest servers to get from "speedtest-cli --list", used as random pool of servers to test against
 slowretry=1				#* When speed is below slowspeed, how many retries of random servers before running full tests
-numslowservers=10		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
+numslowservers=8		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
 precheck="true"         #* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
 precheck_samplet="5"    #* Time in seconds to sample bandwidth usage, defaults to 5 if not set
 precheck_down="50"      #* Download speed in unit defined above that blocks slowcheck
 precheck_up="50"        #* Upload speed in unit defined above that blocks slowcheck
-waittime="00:20:00" 	#* Default wait timer between slow checks, format: "HH:MM:SS"
-slowwait="00:10:00" 	#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
+waittime="00:15:00" 	#* Default wait timer between slow checks, format: "HH:MM:SS"
+slowwait="00:05:00"  	#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
 idle="false" 			#* If "true", resets timer if keyboard or mouse activity is detected in X Server, needs getIdle to work
 # idletimer="00:30:00"  #* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
-						#* any X Server activity resets back to idle timer, format: "HH:MM:SS"
+						#* any X Server activity resets back to idletimer, format: "HH:MM:SS"
 displaypause="false"	#* If "true" automatically pauses timer when display is on, unpauses when off, overrides idle="true" if set, needs xset to work
 loglevel=2				#* 0 : No logging
 						#* 1 : Log only when slow speed has been detected
@@ -50,10 +50,10 @@ maxlogsize=100			#* Max logsize (in kilobytes) before log is rotated
 # logname=""            #* Custom logfile (full path), if a custom logname is set, log rotation is disabled
 mtr="true"				#* Set "false" to disable route testing with mtr, automatically set to "false" if mtr is not found in PATH
 mtr_internal="true"		#* Use hosts from full test in mtr test
-mtr_internal_ok="false" #* Use hosts from full test with ok speeds, set to false to only test hosts with speed below $slowspeed
+mtr_internal_ok="false" #* Use hosts from full test with speeds above $slowspeed, set to false to only test hosts with speed below $slowspeed
 # mtr_internal_max=""   #* Set max hosts to add from internal list
-mtr_external="true"		#* Use hosts from route.cfg.sh, see route.cfg.sh.sample for formatting
-mtrpings=5 			#* Number of pings sent with mtr
+mtr_external="false"	#* Use hosts from route.cfg.sh, see route.cfg.sh.sample for formatting
+mtrpings=25				#* Number of pings sent with mtr
 grc="true" 				#* If "true", enables output coloring with grc
 paused="false" 			#* If "true", the timer is paused at startup, ignored if displaypause="true"
 startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
@@ -90,12 +90,10 @@ animx=1
 animout=""
 precheck_status=""
 precheck_samplet=${precheck_samplet:-5}
-declare -a routelista
-declare -a routelistadesc
-declare -a routelistb
-declare -a routelistbdesc
-declare -a routelistc
-declare -a routelistcdesc
+mtr_internal_max=${mtr_internal_max:-$numslowservers}
+declare -a routelista; declare -a routelistadesc; declare -a routelistaport
+declare -a routelistb; declare -a routelistbdesc; declare -a routelistbport
+declare -a routelistc; declare -a routelistcdesc; declare -a routelistcport
 declare -a testlista
 declare -a rndbkp
 declare -a errorlist
@@ -444,11 +442,10 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 
 testspeed() { #* Using official Ookla speedtest client
 	local mode=${1:-down}
-	local max_tests cs ce cb
+	local max_tests cs ce cb warnings
 	local tests=0
 	local err_retry=0
 	local xl=1
-	local warnings
 	unset 'errorlist[@]'
 	unset 'routelistb[@]'
 	unset 'routelistbdesc[@]'
@@ -458,8 +455,6 @@ testspeed() { #* Using official Ookla speedtest client
 	if [[ $mode == "full" && $numslowservers -ge ${#testlista[@]} ]]; then max_tests=$((${#testlista[@]}-1))
 	elif [[ $mode == "full" && $numslowservers -lt ${#testlista[@]} ]]; then max_tests=$((numslowservers-1))
 	elif [[ $mode == "down" ]]; then
-
-		# TODO getcspeed check! if slowgoing == 0
 
 		max_tests=$slowretry
 		if [[ ${#testlista[@]} -gt 1 && $slowgoing == 0 ]]; then
@@ -566,10 +561,27 @@ testspeed() { #* Using official Ookla speedtest client
 			up_speed=$(((up_speed*unitop)>>20))
 			server_ping=$(echo "$speedstring" | jq '.ping.latency'); server_ping=${server_ping%.*}
 			packetloss=$(echo "$speedstring" | jq '.packetLoss')
-			if [[ $down_speed -le $slowspeed ]]; then downst="FAIL!"; else downst="OK!"; fi
+			if [[ $down_speed -le $slowspeed ]]; then
+				downst="FAIL!"
+				if [[ $mtr_internal == "true" && ${#routelistb[@]} -lt $mtr_internal_max ]]; then
+					routelistb+=("$(echo "$speedstring" | jq -r '.server.host')")
+					routelistbdesc+=("$(echo "$speedstring" | jq -r '.server.name') ($(echo "$speedstring" | jq -r '.server.location'), $(echo "$speedstring" | jq -r '.server.country'))")
+					routelistbport+=("$(echo "$speedstring" | jq '.server.port')")
+				fi
+			
+			else 
+				downst="OK!"
+				if [[ $mtr_internal_ok == "true" && ${#routelistb[@]} -lt $mtr_internal_max ]]; then
+					routelistb+=("$(echo "$speedstring" | jq -r '.server.host')")
+					routelistbdesc+=("$(echo "$speedstring" | jq -r '.server.name') ($(echo "$speedstring" | jq -r '.server.location'), $(echo "$speedstring" | jq -r '.server.country'))")
+					routelistbport+=("$(echo "$speedstring" | jq '.server.port')")
+				fi
+			
+			fi
+			
 			if [[ $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss%.*}% packet loss!"; fi
 
-		# TODO Packet loss detected: Lägg till mtr lista ifrån jq '.server.host' , .server.name , .server.location , .server.country , .server.ip
+		# TODO Packet loss detected: Lägg till mtr lista ifrån jq '.server.host' , .server.name , .server.location , .server.country , .server.ip, .server.port
 
 			printf "\r"; printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
 			drawm "Running full test" "$red"
@@ -639,29 +651,35 @@ testspeed() { #* Using official Ookla speedtest client
 routetest() { #* Test routes with mtr
 	unset 'routelistc[@]'
 	unset 'routelistcdesc[@]'
-	local i ttime tcount pcount prc secs dtext
+	unset 'routelistcport[@]'
+
+	local i ttime tcount pcount prc secs dtext port
 	
 	if [[ $mtr == "false" ]] || [[ $broken == 1 ]]; then return; fi
 	testing=1
 
 	if [[ -n ${routelistb[0]} ]]; then	
 		routelistc+=("${routelistb[@]}")
-		routelistcdesc+=("${routelistadesb[@]}")
+		routelistcdesc+=("${routelistbdesc[@]}")
+		routelistcport+=("${routelistbport[@]}")
 	fi
 
 	if [[ -n ${routelista[0]} ]]; then
 		routelistc+=("${routelista[@]}")
 		routelistcdesc+=("${routelistadesc[@]}")
+		routelistcport+=("${routelistaport[@]}")
 	fi
 		
 	if [[ -z ${routelistc[0]} ]]; then testing=0; return; fi
 
-	
-
 	for((i=0;i<${#routelistc[@]};i++)); do
-		echo "Routetest (${routelistcdesc[$i]}) ${routelistc[$i]}" | writelog 1
+		echo "Routetest (${routelistcdesc[$i]}) ${routelistc[$i]} ($(date +%Y-%m-%d\ %T))" | writelog 1
 		drawm "Running route test..." "$green"
-		mtr -wbc "$mtrpings" -I "$net_device" "${routelistc[$i]}" > "$routefile" &
+		
+		if [[ ${routelistcport[$i]} == "auto" || ${routelistcport[$i]} == "null" || -z ${routelistcport[$i]} ]]; then port=""
+		else port="-P ${routelistcport[$i]}"; fi
+		# shellcheck disable=SC2086
+		mtr -wbc "$mtrpings" -I "$net_device" $port "${routelistc[$i]}" > "$routefile" &
 		routepid="$!"
 		
 		ttime=$((mtrpings+5))
@@ -685,7 +703,7 @@ routetest() { #* Test routes with mtr
 		echo -en "\r"; tput el
 
 		if [[ $broken == 1 ]]; then break; fi
-		writelog 1 "$(<$routefile)\n"
+		writelog 1 "$(tail -n+2 <$routefile)\n"
 
 		drawm
 
@@ -965,6 +983,8 @@ debug1() { #! Remove
 		r|R) routetest ;;
 		*) echo "$key" ;;
 		esac
+		broken=0
+		testing=0
 	done
 		broken=0
 		testing=0
@@ -975,6 +995,8 @@ debug1() { #! Remove
 
 command -v grc/grcat >/dev/null 2>&1 || grc="false"
 command -v mtr >/dev/null 2>&1 || mtr="false"
+
+if [[ $mtr == "false" ]]; then mtr_internal="false"; mtr_internal_ok="false"; fi
 
 trap ctrl_c INT
 
