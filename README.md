@@ -1,11 +1,11 @@
 Name: spdtest.sh<br>
 Version: 1.1.0<br>
-Usage: Script with UI for testing internet speed reability.<br>
+Usage: Script with UI for testing internet speed reability<br>
 <br>
 Description:<br>
 Internet speeds are tested against random servers from speedtest.net with 'speedtest' at an interval (defined by user)<br>
 If slow speed (defined by user) is detected, then runs a number of download and upload test with 'speedtest' and<br>
-(optional) route tests to servers with detected packet loss with 'mtr' and writes to a logfile<br>
+(optional) route tests to servers with slow speed with 'mtr' and writes to a logfile<br>
 <br>
 Dependencies:  <br>
 bash v4.4 or later : Script functionality might brake with earlier versions<br>
