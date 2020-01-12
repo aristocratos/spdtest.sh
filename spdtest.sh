@@ -42,7 +42,7 @@ loglevel=2				#* 0 : No logging
 						#* 2 : Also log slow speed check
 						#* 3 : Also log server updates
 						#* 4 : Log all including forced tests
-quiet_start="false"		#* If "true", don't print serverlist and routelist at startup
+quiet_start="true"		#* If "true", don't print serverlist and routelist at startup
 maxlogsize="100"		#* Max logsize (in kilobytes) before log is rotated
 # logcompress="gzip"	#* Command for compressing rotated logs, uncomment to enable
 # logname=""			#* Custom logfile (full path), if a custom logname is set, log rotation is disabled
@@ -90,8 +90,9 @@ escape_char=$(printf "\u1b")
 charx=0
 animx=1
 animout=""
+bufflen=0
 scrolled=0
-buffsize=1
+buffsize=0
 buffpos=0
 precheck_status=""
 precheck_samplet=${precheck_samplet:-5}
@@ -740,19 +741,17 @@ writelog() { #* Write to logfile and colorise terminal output with grc
 	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | grc/grcat grc.conf
 
 	if [[ $1 -le 8 && $testonly != "true" && $loglevel -ne 103 ]]; then buffer add "$input"; fi
-
-
-
+  
 }
 
 buffline() {
-	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$width" | grc/grcat grc.conf
+	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat grc.conf
 }
 
 
 buffer() {
 	if [[ $max_buffer -eq 0 ]]; then return; fi	
-	local bufflen buffout
+	local buffout scrtext y x
 	bufflen=$(wc -l <"$bufferfile")
 
 	if [[ $1 == "add" && -n $2 ]]; then
@@ -764,6 +763,8 @@ buffer() {
 		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n+$(((bufflen+addlen)-max_buffer)) <"$bufferfile")$addline"; echo "$buffer" > "$bufferfile"
 		else echo -e "${buffer}${addline}" >> "$bufferfile"
 		fi
+		bufflen=$(wc -l <"$bufferfile")
+		drawscroll
 		return
 
 	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
@@ -789,22 +790,46 @@ buffer() {
 	scrolled=$((scrolled-buffsize))
 	if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
 	buffout=$(buffline)
-	tput cup $((titleypos+1)) 0; tput ed
+	tput cup $buffpos 0; tput ed
 	echo -e "$buffout"
 
 	elif [[ $1 == "redraw" ]]; then
-		#tput cup $((titleypos+1)) 0; tput ed
 		scrolled=0
-		#echo -e "$(<$bufferfile)" | tail -n$((height-4)) | cut -c -"$width" | grc/grcat grc.conf
 		buffout=$(buffline)
-		tput cup $((titleypos+1)) 0; tput ed
+		tput cup $buffpos 0; tput ed
 		echo -e "$buffout"
 		if [[ $testing -eq 1 ]]; then echo; fi
 
 	elif [[ $1 == "clear" ]]; then
 		true > "$bufferfile"
-		tput cup $((titleypos+1)) 0; tput ed
+		scrolled=0
+		tput cup $buffpos 0; tput ed
 	fi
+
+	# tput sc
+	# scrtxt="[Bfr: $(((bufflen-buffsize)-scrolled))=>$((bufflen-scrolled))]"
+	# tput cup $((titleypos+1)) $((width-20)); echo -en "${bold}[Bfr: $((((bufflen-2)-buffsize)-scrolled))=>$(((bufflen-2)-scrolled))]${reset}"
+	# tput rc
+	drawscroll
+
+	sleep 0.001
+}
+
+drawscroll() {
+	tput sc
+	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
+		tput cup $titleypos $((width-4)); echo -en "[↕]"
+	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then
+		tput cup $titleypos $((width-4)); echo -en "[↓]"
+	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then
+		tput cup $titleypos $((width-4)); echo -en "[↑]"
+	fi
+
+	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-(buffsize+2))) ]]; then 
+		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(((buffsize-y)+(buffpos+2)))
+		tput cup "$y" $((width-1)); echo -en "${reverse}░${reset}"
+	fi
+	tput rc
 }
 
 drawm() { #* Draw menu and title, arguments: <"title text"> <bracket color 30-37> <sleep time>
@@ -831,10 +856,11 @@ drawm() { #* Draw menu and title, arguments: <"title text"> <bracket color 30-37
 	tput cup $titleypos 0
 	printf "${bold}%0$(tput cols)d${reset}" 0 | tr '0' '='
 	if [[ -n $1 ]]; then tput cup "$titleypos" $(((width / 2)-(${#1} / 2)))
-	echo -e "${bold}${2:-$white}[${white}$1${2:-$white}]${reset}"
+	echo -en "${bold}${2:-$white}[${white}$1${2:-$white}]${reset}"
 	sleep "${3:-0}"
 	fi
 	tput rc
+	drawscroll
 }
 
 tcount() { #* Run timer count in background and write to shared memory
@@ -989,7 +1015,7 @@ inputwait() { #* Timer and input loop
 			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
 			f|F) forcetest=1; break ;;
 			v|V)
-				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rXx1; buffer "redraw"
+				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rXx1; redraw
 				 else drawm "Log empty!" "$red" 2; drawm
 				 fi
 				;;
