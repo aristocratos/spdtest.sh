@@ -16,7 +16,8 @@
 # TODO translate remaining swedish...
 # TODO options menu, window box function
 # TODO grc, grc.conf, speedtest and speedtest-cli to /dev/shm ?
-# TODO buffer output, enable scrolling in UI
+# TODO fix buffer reset on buffer add or on any keypress in loop, "if scrolled -gt 0"
+# TODO buffer optional save between sessions
 
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
@@ -45,7 +46,8 @@ quiet_start="false"		#* If "true", don't print serverlist and routelist at start
 maxlogsize="100"		#* Max logsize (in kilobytes) before log is rotated
 # logcompress="gzip"	#* Command for compressing rotated logs, uncomment to enable
 # logname=""			#* Custom logfile (full path), if a custom logname is set, log rotation is disabled
-max_buffer="100"		#* Max number of lines to buffer in internal scroll buffer, set to 0 to disable, disabled if use_shm="false"
+max_buffer="1000"		#* Max number of lines to buffer in internal scroll buffer, set to 0 to disable, disabled if use_shm="false"
+buffer_save="true"		#* Save buffer to disk on exit and restore on start
 mtr="true"				#* Set "false" to disable route testing with mtr, automatically set to "false" if mtr is not found in PATH
 mtr_internal="true"		#* Use hosts from full test in mtr test
 mtr_internal_ok="false"	#* Use hosts from full test with speeds above $slowspeed, set to false to only test hosts with speed below $slowspeed
@@ -89,6 +91,8 @@ charx=0
 animx=1
 animout=""
 scrolled=0
+buffsize=1
+buffpos=0
 precheck_status=""
 precheck_samplet=${precheck_samplet:-5}
 mtr_internal_max=${mtr_internal_max:-$numslowservers}
@@ -278,10 +282,7 @@ ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing
 		broken=1
 		return
 	else
-		tput clear
-		tput cvvis
-		stty echo
-		tput rmcup
+		writelog 1 "\nINFO: Script ended! ($(date +%Y-%m-%d\ %T))"
 		if kill -0 "$secpid" >/dev/null 2>&1; then kill "$secpid" >/dev/null 2>&1; fi
 		if kill -0 "$routepid" >/dev/null 2>&1; then kill "$routepid" >/dev/null 2>&1; fi
 		if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
@@ -290,9 +291,14 @@ ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing
 		rm $speedfile >/dev/null 2>&1
 		rm $routefile >/dev/null 2>&1
 		rm $tmpout >/dev/null 2>&1
+		if [[ $buffer_save == "true" && -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
 		rm $bufferfile >/dev/null 2>&1
-		#if [[ -n $2 ]]; then echo -e "$2"; fi
+		tput clear
+		tput cvvis
+		stty echo
+		tput rmcup
 		exit 0
+		#if [[ -n $2 ]]; then echo -e "$2"; fi
 		#exit "${1:-0}"
 	fi
 }
@@ -326,10 +332,13 @@ redraw() { #* Redraw menu if window is resized
 	width=$(tput cols)
 	if [[ $width -lt 106 ]]; then menuypos=2; else menuypos=1; fi
 	titleypos=$((menuypos+1))
+	buffpos=$((titleypos+1))
 	height=$(tput lines)
+	buffsize=$((height-buffpos-1))
 	if [[ $startup -eq 1 ]]; then return; fi
-	if [[ $max_buffer -eq 0 ]]; then tput sc; tput cup $((titleypos+1)) 0; tput el; tput rc; drawm
+	if [[ $max_buffer -eq 0 ]]; then tput sc; tput cup $buffpos 0; tput el; tput rc
 	else buffer "redraw"; fi
+	drawm
 }
 
 myip() { #* Get public IP
@@ -405,7 +414,7 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 		#dspeed=$(getcspeed "down" "$(echo "scale=1; $i / 10" | bc)" "$sndvald"); uspeed=$(getcspeed "up" "$(echo "scale=1; $i / 10" | bc)" "$sndvalu")
 		echo -en "Checking bandwidth usage: ${bold}$(progress "$prc") ${green}DOWN=${white}$dspeed $unit ${red}UP=${white}$uspeed $unit${reset}         \r"
 		sleep 0.1
-		if [[ $broken == 1 ]]; then precheck_status="fail"; testing=0; return; fi
+		if [[ $broken == 1 ]]; then precheck_status="fail"; testing=0; tput el; tput el1; writelog 2 "\nWARNING: Precheck aborted!\n"; return; fi
 	done
 	tput el
 	dspeed="$(getcspeed "down" $precheck_samplet "$sndvald")"
@@ -416,7 +425,7 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 	else
 		precheck_status="fail"
 		writelog 9 "Checking bandwidth usage: $(progress 100 "FAIL!") DOWN=$dspeed $unit UP=$uspeed $unit\r"; sleep 2; tput cuu1
-		writelog 2 "WARNING: Testing blocked, current bandwidth usage: DOWN=$dspeed $unit UP=$uspeed $unit $(date +%H:%M\ \(%y-%m-%d))"
+		writelog 2 "WARNING: Testing blocked, current bandwidth usage: DOWN=$dspeed $unit UP=$uspeed $unit ($(date +%Y-%m-%d\ %T))"
 	fi
 	testing=0
 	drawm
@@ -620,8 +629,8 @@ testspeed() { #* Using official Ookla speedtest client
 		warnings=""
 	done #? Test loop end ----------------------------------------------------------------------------------------------------------------------->
 	if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
-	if [[ $broken == 1 && $mode == "full" ]]; then writelog 1 "\nTests aborted\n"; 
-	elif [[ $broken == 1 && $mode == "down" ]]; then writelog 2 "\nTests aborted\n"; 
+	if [[ $broken == 1 && $mode == "full" ]]; then tput el; tput el1; writelog 1 "\nWARNING: Full test aborted!\n"; 
+	elif [[ $broken == 1 && $mode == "down" ]]; then tput el; tput el1; writelog 2 "\nWARNING: Slow test aborted!\n"; 
 	elif [[ $mode == "full" ]]; then writelog 1 " "; fi
 	testing=0
 }
@@ -694,7 +703,7 @@ routetest() { #* Test routes with mtr
 		fi
 		done
 		writelog 1 " "
-	if [[ $broken == 1 ]]; then writelog 1 "Tests aborted\n"; fi
+	if [[ $broken == 1 ]]; then tput el; tput el1; writelog 1 "\nWARNING: Route tests aborted!\n"; fi
 	testing=0
 }
 
@@ -730,14 +739,14 @@ writelog() { #* Write to logfile and colorise terminal output with grc
 
 	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | grc/grcat grc.conf
 
-	if [[ $1 -le 8 ]]; then buffer add "$input"; fi
+	if [[ $1 -le 8 && $testonly != "true" && $loglevel -ne 103 ]]; then buffer add "$input"; fi
 
 
 
 }
 
 buffline() {
-	echo -e "$(<$bufferfile)" | tail -n$(((height-4)+scrolled)) | head -n -$scrolled | cut -c -"$width" | grc/grcat grc.conf
+	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$width" | grc/grcat grc.conf
 }
 
 
@@ -753,42 +762,48 @@ buffer() {
 		addlen=$(echo -en "$addline" | wc -l)
 		if [[ $addlen -ge $max_buffer ]]; then echo "$addline" | tail -n"$max_buffer" > "$bufferfile"
 		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n+$(((bufflen+addlen)-max_buffer)) <"$bufferfile")$addline"; echo "$buffer" > "$bufferfile"
-		else echo "${buffer}${addline}" >> "$bufferfile"
+		else echo -e "${buffer}${addline}" >> "$bufferfile"
 		fi
 		return
 
-	elif [[ $1 == "up" && $bufflen -gt $height && $scrolled -lt $((bufflen-height+6)) ]]; then
+	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
 	scrolled=$((scrolled+1))
-	tput cup $((titleypos+1)) 0
+	tput cup $buffpos 0
 	buffout=$(buffline)
 	tput ed; echo -e "$buffout"
 
 	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then
 	scrolled=$((scrolled-1))
 	buffout=$(buffline)
-	tput cup $((titleypos+1)) 0; tput ed; tput ll
+	tput cup $buffpos 0; tput ed; tput ll
 	echo -e "$buffout"
 	
-	elif [[ $1 == "pageup" && $bufflen -gt $height && $scrolled -lt $((bufflen-height+6)) ]]; then
-	scrolled=$((scrolled+height-4))
-	if [[ $scrolled -ge $((bufflen-height+6)) ]]; then scrolled=$((bufflen-height+6)); fi
-	tput cup $((titleypos+1)) 0
+	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
+	scrolled=$((scrolled+buffsize))
+	if [[ $scrolled -gt $((bufflen-(buffsize+2))) ]]; then scrolled=$((bufflen-(buffsize+2))); fi
+	tput cup $buffpos 0
 	buffout=$(buffline)
 	tput ed; echo -e "$buffout"
-
+	
 	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then
-	scrolled=$((scrolled-height+4))
+	scrolled=$((scrolled-buffsize))
 	if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
 	buffout=$(buffline)
 	tput cup $((titleypos+1)) 0; tput ed
 	echo -e "$buffout"
 
 	elif [[ $1 == "redraw" ]]; then
-		tput cup $((titleypos+1)) 0; tput ed
+		#tput cup $((titleypos+1)) 0; tput ed
 		scrolled=0
-		echo -e "$(<$bufferfile)" | tail -n$((height-4)) | cut -c -"$width" | grc/grcat grc.conf
+		#echo -e "$(<$bufferfile)" | tail -n$((height-4)) | cut -c -"$width" | grc/grcat grc.conf
+		buffout=$(buffline)
+		tput cup $((titleypos+1)) 0; tput ed
+		echo -e "$buffout"
 		if [[ $testing -eq 1 ]]; then echo; fi
-		drawm
+
+	elif [[ $1 == "clear" ]]; then
+		true > "$bufferfile"
+		tput cup $((titleypos+1)) 0; tput ed
 	fi
 }
 
@@ -933,6 +948,7 @@ inputwait() { #* Timer and input loop
 			printf "${bold}[%02d:%02d:${red}%02d${reset}" $((secs/3600)) $(((secs/60)%60)) $((secs%60))
 		else
 			printf "${bold}[%02d:%02d:%02d]${reset}" $((secs/3600)) $(((secs/60)%60)) $((secs%60))
+			#printf "${bold}[%02d:%02d:%02d]${reset}%s" $((secs/3600)) $(((secs/60)%60)) $((secs%60)) " $scrolled  $(wc -l <"$bufferfile")  $buffsize"
 		fi
 		tput rc
 		
@@ -973,12 +989,14 @@ inputwait() { #* Timer and input loop
 			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
 			f|F) forcetest=1; break ;;
 			v|V)
-				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rXx1; redraw
+				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rXx1; buffer "redraw"
 				 else drawm "Log empty!" "$red" 2; drawm
 				 fi
 				;;
 			e|E) printhelp; drawm; sleep 1 ;;
-			c|C) tput clear; tput cup 3 0; drawm; echo -n "" > "$bufferfile" ;;
+			c|C) if [[ $max_buffer -eq 0 ]]; then tput clear; tput cup 3 0; drawm
+				 else buffer "clear"
+				 fi ;;
 			u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
 			ö) echo "displaypause=$displaypause monitor=$(monitor) paused=$paused monitorOvr=$monitorOvr pausetoggled=$pausetoggled" ;;
 			q) ctrl_c ;;
@@ -1009,6 +1027,7 @@ inputwait() { #* Timer and input loop
 		fi
 		if [[ $secs -gt $oldsecs && -n $idletimer && $idle == "true" && $idledone == 1 && $idlebreak == 0 && $paused == "false" ]]; then idlebreak=1; idledone=0; break; fi
 	done
+	if [[ $scrolled -gt 0 ]]; then buffer "redraw"; fi
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idlebreak == 0 ]]; then idledone=1; fi
 	if kill -0 "$secpid" >/dev/null 2>&1; then kill $secpid >/dev/null 2>&1; fi
 }
@@ -1033,7 +1052,7 @@ debug1() { #! Remove
 		while [[ -z $key ]]; do
 		#drawm "Debug Mode" "$magenta"
 		tput sc; tput cup $menuypos 0
-		echo -en "${bold} T = Test  F = Full test  P = Precheck  G = grctest  R = routetest  Q = Quit  A = Add line  C = Clear  Ö = Custom  V = Clear  B = Buffer:$(wc -l <"$bufferfile")${reset}" | cut -c -$((width+4))
+		echo -en "${bold} T = Test  F = Full test  P = Precheck  G = grctest  R = routetest  Q = Quit  A = Add line  C = Clear  Ö = Custom  V = Clear  B = Buffer:$scrolled"
 		tput rc
 		read -srd '' -t 0.0001 -n 10000
 		read -rsn 1 -t 1 key
@@ -1117,7 +1136,10 @@ tput smcup; tput clear; tput civis; tput cup 3 0; stty -echo
 redraw
 trap redraw WINCH
 
+if [[ $buffer_save == "true" && -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw"; fi
 if [[ $debug == "true" ]]; then debug1; fi #! Remove
+
+writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
 
 drawm "Getting servers..." "$green"
 getservers
