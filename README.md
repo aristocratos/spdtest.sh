@@ -25,10 +25,10 @@ Included:  <br>
 speedtest-cli : https://github.com/sivel/speedtest-cli : used to get serverlist since official client is limited to 10 servers<br>
 should not be installed globally since name conflicts with official client, version 2.1.2 included<br>
 <br>
+grc : https://github.com/garabik/grc : for making text output in the UI pretty<br>
+slighty modified grcat from grc version 1.11.3 included<br>
+<br>
 Included but optional:  <br>
 getIdle : source and linux x86_64 binary included : needs to be in script directory for idle reset functionality<br>
 needs X11/extensions/scrnsaver.h from libXss, install libxss (libxss-dev on debian based systems)<br>
 compile with 'gcc -o getIdle src/getIdle.c -lXss -lX11'<br>
-<br>
-grc : https://github.com/garabik/grc : for making text output in the UI pretty, can be disabled<br>
-slighty modified grcat from grc version 1.11.3 included<br>

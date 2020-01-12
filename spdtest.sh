@@ -21,19 +21,19 @@
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
-unit="mbit"  			#* Valid values are "mbit" and "mbyte"
-slowspeed=30 			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
-numservers=30 			#* How many of the closest servers to get from "speedtest-cli --list", used as random pool of servers to test against
-slowretry=1				#* When speed is below slowspeed, how many retries of random servers before running full tests
-numslowservers=8		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
-precheck="true"         #* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
-precheck_samplet="5"    #* Time in seconds to sample bandwidth usage, defaults to 5 if not set
-precheck_down="50"      #* Download speed in unit defined above that blocks slowcheck
-precheck_up="50"        #* Upload speed in unit defined above that blocks slowcheck
-waittime="00:15:00" 	#* Default wait timer between slow checks, format: "HH:MM:SS"
-slowwait="00:05:00"  	#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
-idle="false" 			#* If "true", resets timer if keyboard or mouse activity is detected in X Server, needs getIdle to work
-# idletimer="00:30:00"  #* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
+unit="mbit"				#* Valid values are "mbit" and "mbyte"
+slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
+numservers="30"			#* How many of the closest servers to get from "speedtest-cli --list", used as random pool of servers to test against
+slowretry="1"			#* When speed is below slowspeed, how many retries of random servers before running full tests
+numslowservers="8"		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
+precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
+precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
+precheck_down="50"		#* Download speed in unit defined above that blocks slowcheck
+precheck_up="50"		#* Upload speed in unit defined above that blocks slowcheck
+waittime="00:15:00"		#* Default wait timer between slow checks, format: "HH:MM:SS"
+slowwait="00:05:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
+idle="false"			#* If "true", resets timer if keyboard or mouse activity is detected in X Server, needs getIdle to work
+# idletimer="00:30:00"	#* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
 						#* any X Server activity resets back to idletimer, format: "HH:MM:SS"
 displaypause="false"	#* If "true" automatically pauses timer when display is on, unpauses when off, overrides idle="true" if set, needs xset to work
 loglevel=2				#* 0 : No logging
@@ -41,31 +41,33 @@ loglevel=2				#* 0 : No logging
 						#* 2 : Also log slow speed check
 						#* 3 : Also log server updates
 						#* 4 : Log all including forced tests
-quiet_start="false"     #* If "true", don't print serverlist and routelist at startup
-maxlogsize=100			#* Max logsize (in kilobytes) before log is rotated
+quiet_start="false"		#* If "true", don't print serverlist and routelist at startup
+maxlogsize="100"		#* Max logsize (in kilobytes) before log is rotated
 # logcompress="gzip"	#* Command for compressing rotated logs, uncomment to enable
-# logname=""            #* Custom logfile (full path), if a custom logname is set, log rotation is disabled
+# logname=""			#* Custom logfile (full path), if a custom logname is set, log rotation is disabled
+max_buffer="100"		#* Max number of lines to buffer in internal scroll buffer, set to 0 to disable, disabled if use_shm="false"
 mtr="true"				#* Set "false" to disable route testing with mtr, automatically set to "false" if mtr is not found in PATH
 mtr_internal="true"		#* Use hosts from full test in mtr test
-mtr_internal_ok="false" #* Use hosts from full test with speeds above $slowspeed, set to false to only test hosts with speed below $slowspeed
-# mtr_internal_max=""   #* Set max hosts to add from internal list
+mtr_internal_ok="false"	#* Use hosts from full test with speeds above $slowspeed, set to false to only test hosts with speed below $slowspeed
+# mtr_internal_max=""	#* Set max hosts to add from internal list
 mtr_external="false"	#* Use hosts from route.cfg.sh, see route.cfg.sh.sample for formatting
-mtrpings=25				#* Number of pings sent with mtr
-grc="true" 				#* If "true", enables output coloring with grc
-paused="false" 			#* If "true", the timer is paused at startup, ignored if displaypause="true"
+mtrpings="25"			#* Number of pings sent with mtr
+paused="false"			#* If "true", the timer is paused at startup, ignored if displaypause="true"
 startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
 testnum=1				#* Number of times to loop full tests in testonly mode
 use_shm="true"			#* Use /dev/shm shared memory for temp files, defaults to /tmp if /dev/shm isn't present
 
-ookla_speedtest="speedtest"                        #* Command or full path to official speedtest client 
-speedtest_cli="speedtest-cli/speedtest.py"         #* Path to unofficial speedtest-cli
+ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
+speedtest_cli="speedtest-cli/speedtest.py"		#* Path to unofficial speedtest-cli
 
 #! Variables below are for internal function, don't change unless you know what you are doing
-if [[ $use_shm == true && -d /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp"; fi
+if [[ $use_shm == true && -d /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp"; max_buffer=0; fi
 secfile="$temp/spdtest-sec.$$"
 speedfile="$temp/spdtest-speed.$$"
 routefile="$temp/spdtest-route.$$"
+tmpout="$temp/spdtest-tmpout.$$"
+bufferfile="$temp/spdtest-buffer.$$"
 funcname=$(basename "$0")
 startup=1
 forcetest=0
@@ -82,9 +84,11 @@ slowerror=0
 stype=""
 speedstring=""
 chars="/-\|"
+escape_char=$(printf "\u1b")
 charx=0
 animx=1
 animout=""
+scrolled=0
 precheck_status=""
 precheck_samplet=${precheck_samplet:-5}
 mtr_internal_max=${mtr_internal_max:-$numslowservers}
@@ -96,6 +100,7 @@ declare -a rndbkp
 declare -a errorlist
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
+if [[ $use_shm != "true" && $max_buffer -ne 0 ]]; then max_buffer=0; fi
 
 #? Colors
 reset="\e[0m"
@@ -117,8 +122,9 @@ white="\e[37m"
 
 #? End variables -------------------------------------------------------------------------------------------------------------------->
 
-command -v $ookla_speedtest >/dev/null 2>&1 || { echo "Error official speedtest client not found"; exit 1; }
-command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli not found"; exit 1; }
+command -v $ookla_speedtest >/dev/null 2>&1 || { echo "Error Ookla speedtest client not found"; exit 1; }
+command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli missing"; exit 1; }
+command -v grc/grcat >/dev/null 2>&1 || { echo "Error grc/grcat missing"; exit 1; }
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
 argumenterror() { #* Handles argument errors
@@ -164,9 +170,6 @@ while [[ $# -gt 0 ]]; do #* @note Parse arguments
 		-p|--paused)
 			paused="true"
 		;;
-		-g|--grc-off)
-			grc="false"
-		;;
 		-n|--num-servers)
 			if [[ -n $2 && ${2::1} != "-" ]]; then numservers="$2"; shift
 			else argumenterror "missing" "$1"; fi
@@ -203,7 +206,6 @@ while [[ $# -gt 0 ]]; do #* @note Parse arguments
 			echo -e "USAGE: $funcname [OPTIONS]"
 			echo ""
 			echo -e "OPTIONS:"
-			echo -e "\t-g, --grc-off               Disables terminal output coloring with grc"
 			echo -e "\t-t, --test num              Runs full test 1 or <x> number of times and quits"
 			echo -e "\t-u, --unit mbit/mbyte       Which unit to show speed in, valid units are mbit or mbyte [default: mbit]"
 			echo -e "\t-s, --slow-speed speed      Defines what speed in defined unit that will trigger more tests"
@@ -287,6 +289,8 @@ ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing
 		rm $secfile >/dev/null 2>&1
 		rm $speedfile >/dev/null 2>&1
 		rm $routefile >/dev/null 2>&1
+		rm $tmpout >/dev/null 2>&1
+		rm $bufferfile >/dev/null 2>&1
 		#if [[ -n $2 ]]; then echo -e "$2"; fi
 		exit 0
 		#exit "${1:-0}"
@@ -304,33 +308,15 @@ contains() { #* Function for checking if a value is contained in an array, argum
     return 1
 }
 
-waiting() { #* Show animation and speed or text while waiting for background job, arguments: <pid> <speed/"text"> <[down/up/both]>
+waiting() { #* Show animation and text while waiting for background job, arguments: <pid> <"text">
 			local text=$2
 			local tdir=$3
-			local spaces=""
-			if [[ $3 == "both" ]]; then tdir="down"; spaces="    "; fi
-			if [[ $text == "speed" ]]; then text="Testing"; c2="${reset}${bold}"; etext=" $unit"; fi
-			local skip=1
-			local sndval sndval2 stext stext2 i
-
+			local i spaces=""
 			while kill -0 "$1" >/dev/null 2>&1; do
 				for (( i=0; i<${#chars}; i++ )); do
-					if [[ $2 == "speed" && $skip == 1 ]]; then
-						sndval="$(getcspeed "$tdir" 0.5 "get")"
-						if [[ $3 == "both" ]]; then sndval2="$(getcspeed "up" 0.5 "get")"; fi
-					elif [[ $2 == "speed" && $skip == 5 ]]; then
-						cspd="$(getcspeed "$tdir" 2 "$sndval")"
-						if [[ $3 == "both" && $cspd -lt $((cspdbkp/2)) ]]; then cspd=$cspdbkp; else cspdbkp=$cspd; fi
-						stext="$spaces""$cspd""$spaces"
-						if [[ $3 == "both" ]]; then stext2="      ${white}$(getcspeed "up" 2 "$sndval2")"; etext="\t  "; fi
-						if [[ $stext -le $slowspeed && $3 != "both" ]]; then c1="${bold}${red}"; elif [[ $3 != "both" ]]; then c1="${bold}${green}"; else c1="${bold}"; fi
-						text="$c1$stext$stext2$c2$etext"
-						skip=0
-					fi
-					sleep 0.5
+					sleep 0.2
 					if [[ $broken == 1 ]]; then return; fi
-					echo -en "${bold}${green}$text ${red}${chars:$i:1} ${reset}" "\r"
-					skip=$((skip+1))
+					echo -en "${bold}${white}$text ${red}${chars:$i:1} ${reset}" "\r"
 				done
 			done
 
@@ -340,9 +326,10 @@ redraw() { #* Redraw menu if window is resized
 	width=$(tput cols)
 	if [[ $width -lt 106 ]]; then menuypos=2; else menuypos=1; fi
 	titleypos=$((menuypos+1))
-	#height=$(tput lines)
-	tput sc; tput cup $((titleypos+1)) 0; tput el; tput rc
-	drawm
+	height=$(tput lines)
+	if [[ $startup -eq 1 ]]; then return; fi
+	if [[ $max_buffer -eq 0 ]]; then tput sc; tput cup $((titleypos+1)) 0; tput el; tput rc; drawm
+	else buffer "redraw"; fi
 }
 
 myip() { #* Get public IP
@@ -382,7 +369,6 @@ anim() { #* Gives a character for printing loading animation, arguments: <num>  
 			if [[ $animx -eq $1 ]]; then
 				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
 				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
-				if [[ $animout == "\\" ]]; then animout="\\"; fi
 			fi
 			animx=$((animx+1))
 }
@@ -442,6 +428,7 @@ testspeed() { #* Using official Ookla speedtest client
 	local tests=0
 	local err_retry=0
 	local xl=1
+	local routetemp routeadd
 	unset 'errorlist[@]'
 	unset 'routelistb[@]'
 	unset 'routelistbdesc[@]'
@@ -478,6 +465,8 @@ testspeed() { #* Using official Ookla speedtest client
 			printf "%-58s%s" "" "${testlistdesc[$tests]}" | writelog 9
 			tput cuu1; drawm "Running full test" "$red"
 			tl=${testlista[$tests]}
+			routetemp=""
+			routeadd=0
 		elif [[ $mode == "down" ]]; then
 			if [[ $tests -ge 1 ]]; then numstat="<-- Attempt $((tests+1))"; else numstat=""; fi
 			printf "\r%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress 0 "Init")" " ${testlistdesc[$rnum]} $numstat"| writelog 9
@@ -557,25 +546,22 @@ testspeed() { #* Using official Ookla speedtest client
 			up_speed=$(((up_speed*unitop)>>20))
 			server_ping=$(echo "$speedstring" | jq '.ping.latency'); server_ping=${server_ping%.*}
 			packetloss=$(echo "$speedstring" | jq '.packetLoss')
+			routetemp="$(echo "$speedstring" | jq -r '.server.host')"
 			if [[ $down_speed -le $slowspeed ]]; then
 				downst="FAIL!"
-				if [[ $mtr_internal == "true" && ${#routelistb[@]} -lt $mtr_internal_max ]]; then
-					routelistb+=("$(echo "$speedstring" | jq -r '.server.host')")
-					routelistbdesc+=("$(echo "$speedstring" | jq -r '.server.name') ($(echo "$speedstring" | jq -r '.server.location'), $(echo "$speedstring" | jq -r '.server.country'))")
-					routelistbport+=("$(echo "$speedstring" | jq '.server.port')")
-				fi
-			
+				if [[ $mtr_internal == "true" && ${#routelistb[@]} -lt $mtr_internal_max && -n $routetemp ]]; then routeadd=1; fi
 			else 
 				downst="OK!"
-				if [[ $mtr_internal_ok == "true" && ${#routelistb[@]} -lt $mtr_internal_max ]]; then
-					routelistb+=("$(echo "$speedstring" | jq -r '.server.host')")
-					routelistbdesc+=("$(echo "$speedstring" | jq -r '.server.name') ($(echo "$speedstring" | jq -r '.server.location'), $(echo "$speedstring" | jq -r '.server.country'))")
-					routelistbport+=("$(echo "$speedstring" | jq '.server.port')")
-				fi
-			
+				if [[ $mtr_internal_ok == "true" && ${#routelistb[@]} -lt $mtr_internal_max && -n $routetemp ]]; then routeadd=1; fi
+			fi
+
+			if [[ $routeadd -eq 1 ]]; then
+				routelistb+=("$routetemp")
+				routelistbdesc+=("$(echo "$speedstring" | jq -r '.server.name') ($(echo "$speedstring" | jq -r '.server.location'), $(echo "$speedstring" | jq -r '.server.country'))")
+				routelistbport+=("$(echo "$speedstring" | jq '.server.port')")
 			fi
 			
-			if [[ $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss%.*}% packet loss!"; fi
+			if [[ -n $packetloss && $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss}% packet loss!"; fi
 
 			printf "\r"; printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
 			drawm "Running full test" "$red"
@@ -667,40 +653,45 @@ routetest() { #* Test routes with mtr
 	if [[ -z ${routelistc[0]} ]]; then testing=0; return; fi
 
 	for((i=0;i<${#routelistc[@]};i++)); do
-		echo "Routetest (${routelistcdesc[$i]}) ${routelistc[$i]} ($(date +%Y-%m-%d\ %T))" | writelog 1
-		drawm "Running route test..." "$green"
-		
-		if [[ ${routelistcport[$i]} == "auto" || ${routelistcport[$i]} == "null" || -z ${routelistcport[$i]} ]]; then port=""
-		else port="-P ${routelistcport[$i]}"; fi
-		# shellcheck disable=SC2086
-		mtr -wbc "$mtrpings" -I "$net_device" $port "${routelistc[$i]}" > "$routefile" &
-		routepid="$!"
-		
-		ttime=$((mtrpings+5))
-		tcount=1; pcount=1; dtext=""
-		
-		printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
-		printf "${bold}${yellow}<%02d:%02d>${reset}" $(((ttime/60)%60)) $((ttime%60))
-		while kill -0 "$routepid" >/dev/null 2>&1; do
-			prc=$(echo "scale=2; $pcount / ($ttime * 5) * 100" | bc | cut -d . -f 1)
-			if [[ $pcount -gt $((ttime*5)) ]]; then anim 1; prc=100; dtext=" $animout "; tcount=$((tcount-1)); fi
+		if ping -qc1 -w5 "${routelistc[$i]}" > /dev/null 2>&1; then
+			echo "Routetest: ${routelistcdesc[$i]} ${routelistc[$i]} ($(date +%T))" | writelog 1
+			drawm "Running route test..." "$green"
+			
+			if [[ ${routelistcport[$i]} == "auto" || ${routelistcport[$i]} == "null" || -z ${routelistcport[$i]} ]]; then port=""
+			else port="-P ${routelistcport[$i]}"; fi
+			# shellcheck disable=SC2086
+			mtr -wbc "$mtrpings" -I "$net_device" $port "${routelistc[$i]}" > "$routefile" &
+			routepid="$!"
+			
+			ttime=$((mtrpings+5))
+			tcount=1; pcount=1; dtext=""
+			
 			printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
-			if [[ $tcount -eq 5 ]]; then
-				secs=$((ttime-(pcount/5)))
-				printf "${bold}${yellow}<%02d:%02d>${reset}" $((((ttime-(pcount/5))/60)%60)) $(((ttime-(pcount/5))%60))
-				tcount=0
-			fi
-			sleep 0.2
-			tcount=$((tcount+1)); pcount=$((pcount+1))
-		done
+			printf "${bold}${yellow}<%02d:%02d>${reset}" $(((ttime/60)%60)) $((ttime%60))
+			while kill -0 "$routepid" >/dev/null 2>&1; do
+				prc=$(echo "scale=2; $pcount / ($ttime * 5) * 100" | bc | cut -d . -f 1)
+				if [[ $pcount -gt $((ttime*5)) ]]; then anim 1; prc=100; dtext=" $animout "; tcount=$((tcount-1)); fi
+				printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
+				if [[ $tcount -eq 5 ]]; then
+					secs=$((ttime-(pcount/5)))
+					printf "${bold}${yellow}<%02d:%02d>${reset}" $((((ttime-(pcount/5))/60)%60)) $(((ttime-(pcount/5))%60))
+					tcount=0
+				fi
+				sleep 0.2
+				tcount=$((tcount+1)); pcount=$((pcount+1))
+			done
 
-		echo -en "\r"; tput el
+			echo -en "\r"; tput el
 
-		if [[ $broken == 1 ]]; then break; fi
-		writelog 1 "$(tail -n+2 <$routefile)\n"
+			if [[ $broken == 1 ]]; then break; fi
+			writelog 1 "$(tail -n+2 <$routefile)\n"
 
-		drawm
-
+			drawm
+		else
+			echo "Routetest: ${routelistcdesc[$i]} ${routelistc[$i]} ($(date +%T))" | writelog 1
+			echo "ERROR: Host not reachable!" | writelog 1
+			drawm
+		fi
 		done
 		writelog 1 " "
 	if [[ $broken == 1 ]]; then writelog 1 "Tests aborted\n"; fi
@@ -733,12 +724,71 @@ logrotate() { #* Rename logfile, compress and create new if size is over $logsiz
 writelog() { #* Write to logfile and colorise terminal output with grc
 	if [[ $loglevel -eq 1000 ]]; then return; fi
 	declare input=${2:-$(</dev/stdin)};
+
 	if [[ $1 -le $loglevel || $loglevel -eq 103  ]]; then file="$logfile"; else file="/dev/null"; fi
 	if [[ $loglevel -eq 103 ]]; then echo -en "$input\n" > "$file"; return; fi
-	if [[ $grc == "true" ]]; then
-		echo -en "$input\n" | tee -a "$file" | grc/grcat grc.conf
-	elif [[ $grc == "false" ]]; then
-		echo -en "$input\n" | tee -a "$file"
+
+	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | grc/grcat grc.conf
+
+	if [[ $1 -le 8 ]]; then buffer add "$input"; fi
+
+
+
+}
+
+buffline() {
+	echo -e "$(<$bufferfile)" | tail -n$(((height-4)+scrolled)) | head -n -$scrolled | cut -c -"$width" | grc/grcat grc.conf
+}
+
+
+buffer() {
+	if [[ $max_buffer -eq 0 ]]; then return; fi	
+	local bufflen buffout
+	bufflen=$(wc -l <"$bufferfile")
+
+	if [[ $1 == "add" && -n $2 ]]; then
+		local addlen addline buffer
+		scrolled=0
+		addline="$2"
+		addlen=$(echo -en "$addline" | wc -l)
+		if [[ $addlen -ge $max_buffer ]]; then echo "$addline" | tail -n"$max_buffer" > "$bufferfile"
+		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n+$(((bufflen+addlen)-max_buffer)) <"$bufferfile")$addline"; echo "$buffer" > "$bufferfile"
+		else echo "${buffer}${addline}" >> "$bufferfile"
+		fi
+		return
+
+	elif [[ $1 == "up" && $bufflen -gt $height && $scrolled -lt $((bufflen-height+6)) ]]; then
+	scrolled=$((scrolled+1))
+	tput cup $((titleypos+1)) 0
+	buffout=$(buffline)
+	tput ed; echo -e "$buffout"
+
+	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then
+	scrolled=$((scrolled-1))
+	buffout=$(buffline)
+	tput cup $((titleypos+1)) 0; tput ed; tput ll
+	echo -e "$buffout"
+	
+	elif [[ $1 == "pageup" && $bufflen -gt $height && $scrolled -lt $((bufflen-height+6)) ]]; then
+	scrolled=$((scrolled+height-4))
+	if [[ $scrolled -ge $((bufflen-height+6)) ]]; then scrolled=$((bufflen-height+6)); fi
+	tput cup $((titleypos+1)) 0
+	buffout=$(buffline)
+	tput ed; echo -e "$buffout"
+
+	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then
+	scrolled=$((scrolled-height+4))
+	if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
+	buffout=$(buffline)
+	tput cup $((titleypos+1)) 0; tput ed
+	echo -e "$buffout"
+
+	elif [[ $1 == "redraw" ]]; then
+		tput cup $((titleypos+1)) 0; tput ed
+		scrolled=0
+		echo -e "$(<$bufferfile)" | tail -n$((height-4)) | cut -c -"$width" | grc/grcat grc.conf
+		if [[ $testing -eq 1 ]]; then echo; fi
+		drawm
 	fi
 }
 
@@ -820,8 +870,10 @@ getservers() { #* Gets servers from speedtest-cli and optionally saves to file
 		done
 	else
 		echo "#? Automatically generated server list, servers won't be refreshed at start if this file exists" >> "$servercfg"
-		writelog 3 "\nUsing servers:"
-		speedlist=$($speedtest_cli --list | head -$((numservers+1)) | sed 1d)
+		$speedtest_cli --list  > $tmpout &
+		waiting $! "Fetching servers"; tput el
+		speedlist=$(head -$((numservers+1)) "$tmpout" | sed 1d)
+		writelog 3 "Using servers:         "
 		local num=1
 		for line in $speedlist; do
 			servnum=${line:0:5}
@@ -843,9 +895,9 @@ getservers() { #* Gets servers from speedtest-cli and optionally saves to file
 	if [[ -e route.cfg.sh && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
 		# shellcheck disable=SC1091
 		source route.cfg.sh
-		writelog 3 "Hosts in route.cfg.sh"
+		writelog 3 "Hosts in route.cfg.sh:"
 		for((i=0;i<${#routelista[@]};i++)); do
-			writelog 3 "${routelistadesc[$i]}: ${routelista[$i]}"
+			writelog 3 "(${routelistadesc[$i]}): ${routelista[$i]}"
 		done
 		writelog 3 "\n"
 	fi
@@ -884,10 +936,15 @@ inputwait() { #* Timer and input loop
 		fi
 		tput rc
 		
-		read -srd '' -t 0.01 -n 10000
+		read -srd '' -t 0.0001 -n 10000
 		# shellcheck disable=SC2162
-		read -srn 1 -t 0.99 keyp
+		read -srn 1 -t 0.9999 keyp
+		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp ; fi
 		case "$keyp" in
+			'[A') buffer "up" ;;
+			'[B') buffer "down" ;;
+			'[5~') buffer "pageup" ;;
+			'[6~') buffer "pagedown" ;;
 			p|P)
 				if [[ $displaypause == "true" && $paused == "true" ]]; then monitorOvr=1
 				elif [[ $displaypause == "true" && $paused == "false" ]] ; then monitorOvr=0; fi
@@ -916,17 +973,14 @@ inputwait() { #* Timer and input loop
 			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
 			f|F) forcetest=1; break ;;
 			v|V)
-				if [[ $grc == "true" && -s $logfile ]]; then printf "%s\n%s" "${logfile}:" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rFX~x1
-				elif [[ -s $logfile ]]; then echo "$(<"$logfile")" | less -rFX~x1
-				else drawm "Log empty!" "$red" 2; drawm
-				fi
-				drawm
+				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rXx1; redraw
+				 else drawm "Log empty!" "$red" 2; drawm
+				 fi
 				;;
 			e|E) printhelp; drawm; sleep 1 ;;
-			c|C) tput clear; tput cup 3 0; drawm ;;
+			c|C) tput clear; tput cup 3 0; drawm; echo -n "" > "$bufferfile" ;;
 			u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
 			ö) echo "displaypause=$displaypause monitor=$(monitor) paused=$paused monitorOvr=$monitorOvr pausetoggled=$pausetoggled" ;;
-			# ö) echo "$(<spdtest.sh)" | grcat ./grc.conf | less -rFX~; drawm ;;
 			q) ctrl_c ;;
 		esac
 		if [[ $displaypause == "true" &&  $(monitor) == "on" && $paused == "false" && $monitorOvr == 0 ]] || [[ $paused == "false" && $pausetoggled == 1 ]] ; then
@@ -960,25 +1014,56 @@ inputwait() { #* Timer and input loop
 }
 
 debug1() { #! Remove
+	drawm
+	startup=0
 	loglevel=0
-	quiet_start="true"
+	#quiet_start="true"
+	numservers="30"
+	numslowservers="5"
+	slowspeed="30"
+	mtrpings="10"
+	max_buffer="1000"
+	mtr_external="false"
+	mtr_internal="true"
+	mtr_internal_ok="true"
+	# mtr_internal_max=""
 	getservers
 	while true; do
-		drawm "Debug Mode" "$magenta"
-		echo -en "\r ${bold}T = Test \t F = Full test \t P = Precheck \t G = grctest \t R = routetest \t Q = Quit${reset}\r"
-		read -rsn 1 key
+		key=""
+		while [[ -z $key ]]; do
+		#drawm "Debug Mode" "$magenta"
+		tput sc; tput cup $menuypos 0
+		echo -en "${bold} T = Test  F = Full test  P = Precheck  G = grctest  R = routetest  Q = Quit  A = Add line  C = Clear  Ö = Custom  V = Clear  B = Buffer:$(wc -l <"$bufferfile")${reset}" | cut -c -$((width+4))
+		tput rc
+		read -srd '' -t 0.0001 -n 10000
+		read -rsn 1 -t 1 key
+		done
+		if [[ $key == "$escape_char" ]]; then read -rsn3 -t 0.0001 key ; fi
 		tput el
 		case "$key" in
+		'[A') buffer "up" ;;
+		'[B') buffer "down" ;;
+		'[C') echo "right" ;;
+		'[D') echo "left" ;;
+		'[5~') buffer "pageup" ;;
+		'[6~') buffer "pagedown" ;;
 		q|Q) break ;;
 		t|T) testspeed "down" ;;
 		f|F) testspeed "full" ;;
 		p|P) precheck_speed; echo "" ;;
-		g|G) echo "$(<log/spdtest.log)" | grc/grcat ;;
+		g|G) if [[ -s $logfile ]]; then writelog 8 "${logfile}:\n$(tail -n500 "$logfile")"; fi; drawm ;;
+		b|B) echo -e "$(<$bufferfile)" | grc/grcat grc.conf; drawm ;;
 		r|R) routetest ;;
+		a|A) echo "Korv" | writelog 5  ;;
+		v|V) redraw ;;
+		c|C) tput clear; tput cup 3 0; drawm; echo -n "" > "$bufferfile" ;;
+		#ö|Ö) tput cup 4 0; echo Korv ;;
 		*) echo "$key" ;;
 		esac
 		broken=0
 		testing=0
+		#drawm
+		#if [[ $width -ne $((tput cols)) || $height -ne $((tput lines)) ]]; then redraw; fi
 	done
 		broken=0
 		testing=0
@@ -987,12 +1072,13 @@ debug1() { #! Remove
 
 #?> End functions --------------------------------------------------------------------------------------------------------------------> @audit Pre Main
 
-command -v grc/grcat >/dev/null 2>&1 || grc="false"
 command -v mtr >/dev/null 2>&1 || mtr="false"
 
 if [[ $mtr == "false" ]]; then mtr_internal="false"; mtr_internal_ok="false"; fi
 
 trap ctrl_c INT
+
+touch $tmpout; chmod 600 $tmpout
 
 if [[ $genservers == "true" ]]; then
 	echo -e "\nCreating server.cfg.sh"
@@ -1025,9 +1111,9 @@ fi
 
 if [[ ! -x ./getIdle ]]; then idle="false"; fi
 
+touch $bufferfile; chmod 600 $bufferfile
 touch $secfile; chmod 600 $secfile
 tput smcup; tput clear; tput civis; tput cup 3 0; stty -echo
-
 redraw
 trap redraw WINCH
 
