@@ -83,7 +83,12 @@ def get_colour(x):
     else:
         raise ValueError('Bad colour specified: '+x)
 
-conffile = 'grc.conf'
+# home = []
+# conffile = None
+conffile = os.environ.get('spdtest_grcconf')
+
+if not conffile:
+    sys.exit(1)
 
 regexplist = []
 

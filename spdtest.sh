@@ -62,6 +62,7 @@ use_shm="true"			#* Use /dev/shm shared memory for temp files, defaults to /tmp 
 
 ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
 speedtest_cli="speedtest-cli/speedtest.py"		#* Path to unofficial speedtest-cli
+export spdtest_grcconf="./grc/grc.conf"
 
 #! Variables below are for internal function, don't change unless you know what you are doing
 if [[ $use_shm == true && -d /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp"; max_buffer=0; fi
