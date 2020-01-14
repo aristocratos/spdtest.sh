@@ -270,7 +270,6 @@ else
 fi
 
 net_status="$(</sys/class/net/"$net_device"/operstate)"
-if [[ $net_status != "up" ]]; then echo "Interface $net_device is down!"; exit 1; fi
 
 #? End argument parsing ------------------------------------------------------------------------------------------------------------------>
 
@@ -283,7 +282,7 @@ ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing
 		broken=1
 		return
 	else
-		writelog 1 "\nINFO: Script ended! ($(date +%Y-%m-%d\ %T))"
+		#writelog 1 "\nINFO: Script ended! ($(date +%Y-%m-%d\ %T))"
 		if kill -0 "$secpid" >/dev/null 2>&1; then kill "$secpid" >/dev/null 2>&1; fi
 		if kill -0 "$routepid" >/dev/null 2>&1; then kill "$routepid" >/dev/null 2>&1; fi
 		if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
@@ -346,25 +345,22 @@ myip() { #* Get public IP
 	dig @resolver1.opendns.com ANY myip.opendns.com +short
 	}
 
-getcspeed() { #* Get current $net_device bandwith usage, arguments: <down/up/both> <sleep> <["get"][value from previous get]>
-	local sdir=${1:-down}
-	local slp=${2:-3}
-	local uvalue=0
-	LINE=$(grep "$net_device" /proc/net/dev | sed "s/.*://");
-	if [[ $sdir == "down" ]]; then svalue=$(echo "$LINE" | awk '{print $1}')
-	elif [[ $sdir == "up" ]]; then svalue=$(echo "$LINE" | awk '{print $9}')
-	elif [[ $sdir == "both" ]]; then dvalue=$(echo "$LINE" | awk '{print $1}'); uvalue=$(echo "$LINE" | awk '{print $9}'); svalue=$((dvalue+uvalue)); fi
-	if [[ -n $3 && $3 != "get" ]]; then SPEED=$(echo "($svalue - $3) / ($slp - ($slp * 0.028))" | bc); echo $(((SPEED*unitop)>>20)); return; fi
+getcspeed() { #* Get current $net_device bandwith usage, arguments: <down/up> <sleep> <["get"][value from previous get]>
+	local line svalue speed total awkline slp=${2:-3} sdir=${1:-down}
+	# shellcheck disable=SC2016
+	if [[ $sdir == "down" ]]; then awkline='{print $1}'
+	elif [[ $sdir == "up" ]]; then awkline='{print $9}'
+	else return; fi
+	line=$(grep "$net_device" /proc/net/dev | sed "s/.*://")
+	svalue=$(echo "$line" | awk "$awkline")
+	if [[ $3 == "get" ]]; then echo "$svalue"; return; fi
+	if [[ -n $3 && $3 != "get" ]]; then speed=$(echo "($svalue - $3) / ($slp - ($slp * 0.028))" | bc); echo $(((speed*unitop)>>20)); return; fi
 	total=$((svalue))
-	if [[ $3 == "get" ]]; then echo $total; return; fi
 	sleep "$slp"
-	LINE=$(grep "$net_device" /proc/net/dev | sed "s/.*://");
-	if [[ $sdir == "down" ]]; then svalue=$(echo "$LINE" | awk '{print $1}')
-	elif [[ $sdir == "up" ]]; then svalue=$(echo "$LINE" | awk '{print $9}')
-	elif [[ $sdir == "both" ]]; then dvalue=$(echo "$LINE" | awk '{print $1}'); uvalue=$(echo "$LINE" | awk '{print $9}'); svalue=$((dvalue+uvalue)); fi
-	#SPEED=$(((svalue-total)/slp))
-	SPEED=$(echo "($svalue - $total) / ($slp - ($slp * 0.028))" | bc)
-	echo $(((SPEED*unitop)>>20))
+	line=$(grep "$net_device" /proc/net/dev | sed "s/.*://")
+	svalue=$(echo "$line" | awk "$awkline")
+	speed=$(echo "($svalue - $total) / ($slp - ($slp * 0.028))" | bc)
+	echo $(((speed*unitop)>>20))
 }
 
 test_type_checker() { #* Check current type of test being run by speedtest
@@ -738,18 +734,18 @@ writelog() { #* Write to logfile and colorise terminal output with grc
 	if [[ $1 -le $loglevel || $loglevel -eq 103  ]]; then file="$logfile"; else file="/dev/null"; fi
 	if [[ $loglevel -eq 103 ]]; then echo -en "$input\n" > "$file"; return; fi
 
-	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | grc/grcat grc.conf
+	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | grc/grcat
 
 	if [[ $1 -le 8 && $testonly != "true" && $loglevel -ne 103 ]]; then buffer add "$input"; fi
   
 }
 
-buffline() {
-	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat grc.conf
+buffline() { #* Get current buffer from scroll position and window height, cut off text wider than window width
+	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat
 }
 
 
-buffer() {
+buffer() { #* Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"]
 	if [[ $max_buffer -eq 0 ]]; then return; fi	
 	local buffout scrtext y x
 	bufflen=$(wc -l <"$bufferfile")
@@ -1015,7 +1011,7 @@ inputwait() { #* Timer and input loop
 			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
 			f|F) forcetest=1; break ;;
 			v|V)
-				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat ./grc.conf | less -rXx1; redraw
+				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat | less -rXx1; redraw
 				 else drawm "Log empty!" "$red" 2; drawm
 				 fi
 				;;
@@ -1097,7 +1093,7 @@ debug1() { #! Remove
 		f|F) testspeed "full" ;;
 		p|P) precheck_speed; echo "" ;;
 		g|G) if [[ -s $logfile ]]; then writelog 8 "${logfile}:\n$(tail -n500 "$logfile")"; fi; drawm ;;
-		b|B) echo -e "$(<$bufferfile)" | grc/grcat grc.conf; drawm ;;
+		b|B) echo -e "$(<$bufferfile)" | grc/grcat; drawm ;;
 		r|R) routetest ;;
 		a|A) echo "Korv" | writelog 5  ;;
 		v|V) redraw ;;
@@ -1165,7 +1161,7 @@ trap redraw WINCH
 if [[ $buffer_save == "true" && -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw"; fi
 if [[ $debug == "true" ]]; then debug1; fi #! Remove
 
-writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
+#writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
 
 drawm "Getting servers..." "$green"
 getservers
@@ -1194,8 +1190,9 @@ main_loop() {
 	fi
 
 	net_status="$(</sys/class/net/"$net_device"/operstate)"
+	if [[ $net_status != "up" ]]; then writelog 1 "Interface $net_device is down! ($(date +%H:%M))"; return; fi	
 
-	if [[ $idlebreak == 0 && $net_status == "up" ]]; then
+	if [[ $idlebreak == 0 ]]; then
 		logrotate
 
 		if [[ $forcetest != 1 && $startupdetect == 0 ]]; then
@@ -1230,7 +1227,7 @@ main_loop() {
 		fi
 	fi
 
-	if [[ $net_status != "up" ]]; then writelog 1 "Interface $net_device is down! ($(date +%H:%M))"; fi	
+	
 }
 
 while true; do
