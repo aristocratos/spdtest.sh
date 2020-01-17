@@ -83,6 +83,7 @@ idledone=0
 idlebreak=0
 broken=0
 updateservers=0
+times_tested=0
 monitorOvr=0
 pausetoggled=0
 slowerror=0
@@ -488,6 +489,7 @@ testspeed() { #? Using official Ookla speedtest client
 		if [[ ${#testlista[@]} -gt 1 && $slowgoing == 0 ]]; then
 			# rnum="$RANDOM % ${#testlista[@]}"
 			rnum=$(shuf -i 0-$((${#testlista[@]}-1)) -n 1)
+			rnum=$(random array_int testlista)
 			tl=${testlista[$rnum]}
 		elif [[ ${#testlista[@]} -gt 1 && $slowgoing == 1 ]]; then
 			rnum=${rndbkp[$xl]}
@@ -622,10 +624,11 @@ testspeed() { #? Using official Ookla speedtest client
 		elif [[ $mode == "down" && $slowerror == 0 ]]; then
 			if [[ $slowgoing == 0 ]]; then rndbkp[$xl]="$rnum"; xl=$((xl+1)); fi
 			if [[ $down_speed -le $slowspeed ]]; then downst="FAIL!"; else downst="OK!"; fi
-			if [[ $tdate != $(date +%d) ]]; then tdate="$(date +%d)"; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
+			if [[ $tdate != $(date +%d) || $times_tested -eq 10 ]]; then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
 			#writelog 2 "\r${bold}$down_speed $unit\t${reset}  $downst\t  ${testlistdesc[$rnum]} <Ping: $server_ping> $timestamp $numstat"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc[$rnum]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
+			times_tested=$((times_tested+1))
 			drawm "Testing speed" "$green"
 			if [[ $down_speed -le $slowspeed && ${#testlista[@]} -gt 1 && $tests -lt $max_tests && $slowgoing == 0 ]]; then
 				tl2=$tl
