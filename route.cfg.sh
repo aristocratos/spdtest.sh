@@ -1,21 +1,22 @@
 #? List of routes to test with mtr
 #? Format:
-#? routelistadesc+=("Name")
 #? routelista+=("host")
-#? routelistaport+=("port")  'Set port to "auto" if you don't want to set a custom port!'
+#? routelistdesc["host"]=("Name")
+#? routelistport["host"]=("port")  'Set port to "auto" if you don't want to set a custom port!'
 
-routelistadesc+=("Google")
+
 routelista+=("google.com")
-routelistaport+=("auto")
+routelistdesc["google.com"]="Google"
+routelistport["google.com"]="auto"
 
-routelistadesc+=("Reddit")
 routelista+=("reddit.com")
-routelistaport+=("auto")
+routelistdesc["reddit.com"]="Reddit"
+routelistport["reddit.com"]="auto"
 
-routelistadesc+=("Twitch")
 routelista+=("twitch.tv")
-routelistaport+=("auto")
+routelistdesc["twitch.tv"]="Twitch"
+routelistport["twitch.tv"]="auto"
 
-routelistadesc+=("Amazon")
 routelista+=("amazon.com")
-routelistaport+=("auto")
+routelistdesc["amazon.com"]="Amazon"
+routelistport["amazon.com"]="auto"
