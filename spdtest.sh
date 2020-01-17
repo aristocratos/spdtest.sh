@@ -18,6 +18,7 @@
 # TODO options menu, window box function
 # TODO grc, grc.conf, speedtest and speedtest-cli to /dev/shm ?
 # TODO buffer logview
+# TODO route test menu, choose host to test
 
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
@@ -137,7 +138,7 @@ command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli missing
 command -v grc/grcat >/dev/null 2>&1 || { echo "Error grc/grcat missing"; exit 1; }
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
-argumenterror() { #* Handles argument errors
+argumenterror() { #? Handles argument errors
 	echo "Error:"
 	case $1 in
 		general) echo -e "$2 tnot a valid option" ;;
@@ -150,7 +151,7 @@ argumenterror() { #* Handles argument errors
 }
 
 # re='^[0-9]+$'
-while [[ $# -gt 0 ]]; do #* @note Parse arguments
+while [[ $# -gt 0 ]]; do #? @note Parse arguments
 	case $1 in
 		-t|--test)
 			testonly="true"
@@ -284,7 +285,7 @@ broken() {
 	if [[ $broken -eq 1 ]]; then return 0; else return 1; fi
 }
 
-ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing otherwise cleanup and exit
+ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing otherwise cleanup and exit
 	if [[ $testing == 1 ]]; then
 		if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
 		if kill -0 "$routepid" >/dev/null 2>&1; then kill "$routepid" >/dev/null 2>&1; fi
@@ -312,7 +313,7 @@ ctrl_c() { #* Catch ctrl-c and general exit function, abort if currently testing
 	fi
 }
 
-contains() { #* Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
+contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
     local i n=$# value=${!n}
     for ((i=1;i < $#;i++)) {
         if [[ "${!i}" == "${value}" ]]; then
@@ -322,7 +323,7 @@ contains() { #* Function for checking if a value is contained in an array, argum
     return 1
 }
 
-waiting() { #* Show animation and text while waiting for background job, arguments: <pid> <"text">
+waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
 			local text=$2
 			local tdir=$3
 			local i spaces=""
@@ -336,7 +337,7 @@ waiting() { #* Show animation and text while waiting for background job, argumen
 
 }
 
-redraw() { #* Redraw menu if window is resized
+redraw() { #? Redraw menu if window is resized
 	width=$(tput cols)
 	height=$(tput lines)
 	menuypos=$(((main_menu_len/width)+1))
@@ -350,11 +351,11 @@ redraw() { #* Redraw menu if window is resized
 	drawm
 }
 
-myip() { #* Get public IP
+myip() { #? Get public IP
 	dig @resolver1.opendns.com ANY myip.opendns.com +short
 	}
 
-getcspeed() { #* Get current $net_device bandwith usage, arguments: <down/up> <sleep> <["get"][value from previous get]>
+getcspeed() { #? Get current $net_device bandwith usage, arguments: <down/up> <sleep> <["get"][value from previous get]>
 	local line svalue speed total awkline slp=${2:-3} sdir=${1:-down}
 	# shellcheck disable=SC2016
 	if [[ $sdir == "down" ]]; then awkline='{print $1}'
@@ -372,7 +373,7 @@ getcspeed() { #* Get current $net_device bandwith usage, arguments: <down/up> <s
 	echo $(((speed*unitop)>>20))
 }
 
-test_type_checker() { #* Check current type of test being run by speedtest
+test_type_checker() { #? Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
 		stype=$(echo "$speedstring" | jq -r '.type')
 		if broken; then stype="broken"; fi
@@ -380,7 +381,7 @@ test_type_checker() { #* Check current type of test being run by speedtest
 		if ! kill -0 "$speedpid" >/dev/null 2>&1; then stype="ended"; fi
 }
 
-anim() { #* Gives a character for printing loading animation, arguments: <num>  Only print every num number of times
+anim() { #? Gives a character for printing loading animation, arguments: <num>  Only print every num number of times
 			if [[ $animx -eq $1 ]]; then
 				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
 				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
@@ -388,7 +389,7 @@ anim() { #* Gives a character for printing loading animation, arguments: <num>  
 			animx=$((animx+1))
 }
 
-progress() { #* Print progress bar, arguments: <percent> [<"text">] [<text color>] [<reset color>]
+progress() { #? Print progress bar, arguments: <percent> [<"text">] [<text color>] [<reset color>]
 	local text cs ce x i xp=0
 	local percent=${1:-0}
 	local text=${2:-$percent}
@@ -403,7 +404,7 @@ progress() { #* Print progress bar, arguments: <percent> [<"text">] [<text color
 	echo -n "]"
 }
 
-precheck_speed() { #* Check current bandwidth usage before slowcheck
+precheck_speed() { #? Check current bandwidth usage before slowcheck
 	testing=1
 	local sndvald sndvalu i skip=1
 	local dspeed=0
@@ -441,7 +442,7 @@ precheck_speed() { #* Check current bandwidth usage before slowcheck
 	drawm
 }
 
-testspeed() { #* Using official Ookla speedtest client
+testspeed() { #? Using official Ookla speedtest client
 	local mode=${1:-down}
 	local max_tests cs ce cb warnings
 	local tests=0
@@ -581,7 +582,7 @@ testspeed() { #* Using official Ookla speedtest client
 				routelistbport+=("$(echo "$speedstring" | jq '.server.port')")
 			fi
 			
-			if [[ -n $packetloss && $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss}% packet loss!"; fi
+			if [[ -n $packetloss && $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
 
 			printf "\r"; printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
 			drawm "Running full test" "$red"
@@ -650,7 +651,7 @@ testspeed() { #* Using official Ookla speedtest client
 
 
 
-routetest() { #* Test routes with mtr
+routetest() { #? Test routes with mtr
 	unset 'routelistc[@]'
 	unset 'routelistcdesc[@]'
 	unset 'routelistcport[@]'
@@ -720,11 +721,11 @@ routetest() { #* Test routes with mtr
 	testing=0
 }
 
-monitor() { #* Check if display is on with xset
+monitor() { #? Check if display is on with xset
 		xset q | grep -q "Monitor is On" && echo on || echo off
 }
 
-logrotate() { #* Rename logfile, compress and create new if size is over $logsize
+logrotate() { #? Rename logfile, compress and create new if size is over $logsize
 	if [[ -n $logname ]]; then
 		logfile="$logname"
 	else
@@ -743,7 +744,7 @@ logrotate() { #* Rename logfile, compress and create new if size is over $logsiz
 	fi
 }
 
-writelog() { #* Write to logfile and colorise terminal output with grc
+writelog() { #? Write to logfile and colorise terminal output with grc
 	if [[ $loglevel -eq 1000 ]]; then return; fi
 	declare input=${2:-$(</dev/stdin)};
 
@@ -756,12 +757,12 @@ writelog() { #* Write to logfile and colorise terminal output with grc
   
 }
 
-buffline() { #* Get current buffer from scroll position and window height, cut off text wider than window width
+buffline() { #? Get current buffer from scroll position and window height, cut off text wider than window width
 	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat
 }
 
 
-buffer() { #* Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"]
+buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"]
 	if [[ $max_buffer -eq 0 ]]; then return; fi	
 	local buffout scrtext y x
 	bufflen=$(wc -l <"$bufferfile")
@@ -844,7 +845,7 @@ drawscroll() {
 	tput rc
 }
 
-drawm() { #* Draw menu and title, arguments: <"title text"> <bracket color 30-37> <sleep time>
+drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37> <sleep time>
 	local curline tlength mline
 	if [[ $testonly == "true" ]]; then return; fi
 	tput sc
@@ -894,7 +895,7 @@ drawm() { #* Draw menu and title, arguments: <"title text"> <bracket color 30-37
 	drawscroll
 }
 
-tcount() { #* Run timer count in background and write to shared memory
+tcount() { #? Run timer count in background and write to shared memory
 	lsec="$1"
 	echo "$lsec" > "$secfile"
 	secbkp=$((lsec + 1))
@@ -908,7 +909,7 @@ tcount() { #* Run timer count in background and write to shared memory
 	done
 }
 
-printhelp() { #* Prints help information in UI
+printhelp() { #? Prints help information in UI
 	echo ""
 	echo -e "Key:              Descripton:                           Key:              Description:"
 	echo -e "q                 Quit                                  e                 Show help information"
@@ -922,7 +923,7 @@ printhelp() { #* Prints help information in UI
 	echo -e "u                 Update serverlist\n"
 	}
 
-getservers() { #* Gets servers from speedtest-cli and optionally saves to file
+getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	unset 'testlista[@]'
 	unset 'testlistdesc[@]'
 	unset 'routelista[@]'
@@ -977,7 +978,7 @@ getservers() { #* Gets servers from speedtest-cli and optionally saves to file
 	if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
 }
 
-inputwait() { #* Timer and input loop
+inputwait() { #? Timer and input loop
 	drawm
 
 	local IFS=:
@@ -1137,8 +1138,8 @@ debug1() { #! Remove
 		ö|Ö) 
 		echo $menuypos
 		echo $(((main_menu_len/width)+1))
-		echo $main_menu_len
-		echo $width
+		echo "$main_menu_len"
+		echo "$width"
 
 
 		 ;;
@@ -1177,7 +1178,7 @@ if [[ ! -w $logfile && $loglevel != 0 ]]; then echo "ERROR: Couldn't write to lo
 touch $speedfile; chmod 600 $speedfile
 touch $routefile; chmod 600 $routefile
 
-if [[ $testonly == "true" ]]; then #* Run tests and quit if variable test="true" or arguments -t or --test was passed to script
+if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true" or arguments -t or --test was passed to script
 	getservers
 	writelog 2 "Logging to: $logfile\n"
 	for i in $testnum; do
@@ -1264,7 +1265,7 @@ main_loop() {
 				if [[ -n $slowwait ]]; then waittime=$waitbkp; fi
 				if [[ $slowerror == 0 ]]; then
 					slowgoing=0
-					writelog 1 "<------------------------------------------Speeds normal!------------------------------------------>\n"
+					writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
 					drawm
 				fi
 			fi
