@@ -2,6 +2,7 @@
 # shellcheck disable=SC1090  #can't follow non constant source
 # shellcheck disable=SC2034  #unused variables
 # shellcheck disable=SC2001 #sed
+#shellcheck disable=SC2207 # read -a, mapfile warning
 
 #? @note TODOs
 
@@ -96,6 +97,7 @@ bufflen=0
 scrolled=0
 buffsize=0
 buffpos=0
+buffpid=""
 menuypos=1
 main_menu_len=0
 width=$(tput cols)
@@ -112,6 +114,8 @@ declare -a errorlist
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
 if [[ $use_shm != "true" && $max_buffer -ne 0 ]]; then max_buffer=0; fi
+if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
+if [[ $max_buffer -gt 0 && $max_buffer -le $((height*2)) ]]; then max_buffer=$((height*2)); fi
 
 #? Colors
 reset="\e[0m"
@@ -323,6 +327,27 @@ contains() { #? Function for checking if a value is contained in an array, argum
     return 1
 }
 
+random() { #? Random number(s)/number(s) in array/value(s) in array generator, arguments: int "number"-"number" [num] | array-int "array" [num|*] | array-value "array". Ex: "random array-value my_array [num|*]"
+	local x=${3:-1}
+
+	if [[ $1 == int && -n $2 ]]; then
+		echo -n "$(shuf -i "$2" -n "$x" $rnd_src)"
+
+	elif [[ $1 == array_int && -n $2 ]]; then #shellcheck disable=SC2016
+		local arr_int='${#'"$2"'[@]}'; eval arr_int="$arr_int"
+		if [[ $x == "*" ]]; then x=$arr_int; fi
+		echo -n "$(shuf -i 0-$((arr_int-1)) -n "$x" $rnd_src)"
+
+	elif [[ $1 == array_value && -n $2 ]]; then 
+		local i rnd; rnd=($(random array_int "$2" "$3"))
+		for i in "${rnd[@]}"; do
+		local arr_value="${2}[$i]"
+		echo "${!arr_value}"
+		done
+	fi
+}
+
+
 waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
 			local text=$2
 			local tdir=$3
@@ -346,13 +371,13 @@ redraw() { #? Redraw menu if window is resized
 	buffpos=$((titleypos+1))
 	buffsize=$((height-buffpos-1))
 	if [[ $1 == "calc" ]]; then return; fi
-	if [[ $max_buffer -eq 0 ]]; then tput sc; tput cup $buffpos 0; tput el; tput rc
+	if ! buffer; then tput sc; tput cup $buffpos 0; tput el; tput rc
 	else buffer "redraw"; fi
 	drawm
 }
 
 myip() { #? Get public IP
-	dig @resolver1.opendns.com ANY myip.opendns.com +short
+	curl -s ipinfo.io/ip
 	}
 
 getcspeed() { #? Get current $net_device bandwith usage, arguments: <down/up> <sleep> <["get"][value from previous get]>
@@ -583,14 +608,15 @@ testspeed() { #? Using official Ookla speedtest client
 			fi
 			
 			if [[ -n $packetloss && $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
-
-			printf "\r"; printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
+			printf "\r"; tput el
+			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
 			drawm "Running full test" "$red"
 			tests=$((tests+1))
 		
 		elif [[ $mode == "full" && $slowerror == 1 ]]; then
 			warnings="ERROR: Couldn't test server!"
-			printf "\r"; printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
+			printf "\r"; tput el
+			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc[$tests]}" "  $warnings" | writelog 1
 			drawm "Running full test" "$red"
 			tests=$((tests+1))
 		elif [[ $mode == "down" && $slowerror == 0 ]]; then
@@ -762,8 +788,11 @@ buffline() { #? Get current buffer from scroll position and window height, cut o
 }
 
 
-buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"]
-	if [[ $max_buffer -eq 0 ]]; then return; fi	
+buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"], no argument returns exit codes for buffer availability
+	if [[ -z $1 && $max_buffer -le buffsize ]]; then return 1
+	elif [[ -z $1 && $max_buffer -gt $buffsize ]]; then return 0
+	elif [[ $max_buffer -le $buffsize ]]; then return; fi
+
 	local buffout scrtext y x
 	bufflen=$(wc -l <"$bufferfile")
 
@@ -772,8 +801,9 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		scrolled=0
 		addline="$2"
 		addlen=$(echo -en "$addline" | wc -l)
-		if [[ $addlen -ge $max_buffer ]]; then echo "$addline" | tail -n"$max_buffer" > "$bufferfile"
-		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n+$(((bufflen+addlen)-max_buffer)) <"$bufferfile")$addline"; echo "$buffer" > "$bufferfile"
+		if [[ $addlen -ge $max_buffer ]]; then echo -e "$(echo -e "$addline" | tail -n"$max_buffer")\n" > "$bufferfile"
+		#elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n+$(((bufflen-addlen)-max_buffer)) <"$bufferfile")\n$addline"; echo -e "$buffer" > "$bufferfile"
+		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n$(((max_buffer-addlen)-(max_buffer/10))) <"$bufferfile")\n$addline"; echo -e "$buffer" > "$bufferfile"
 		else echo -e "${buffer}${addline}" >> "$bufferfile"
 		fi
 		bufflen=$(wc -l <"$bufferfile")
@@ -1052,7 +1082,7 @@ inputwait() { #? Timer and input loop
 				 fi
 				;;
 			e|E) printhelp; drawm; sleep 1 ;;
-			c|C) if [[ $max_buffer -eq 0 ]]; then tput clear; tput cup 3 0; drawm
+			c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
 				 else buffer "clear"
 				 fi ;;
 			u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
