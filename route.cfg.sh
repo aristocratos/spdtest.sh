@@ -4,7 +4,6 @@
 #? routelistdesc["host"]=("Name")
 #? routelistport["host"]=("port")  'Set port to "auto" if you don't want to set a custom port!'
 
-
 routelista+=("google.com")
 routelistdesc["google.com"]="Google"
 routelistport["google.com"]="auto"

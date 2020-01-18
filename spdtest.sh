@@ -102,6 +102,7 @@ buffpid=""
 trace_msg=""
 drawm_ltitle=""
 drawm_lcolor=""
+scroll_symbol=""
 declare -a trace_array
 err=""
 menuypos=1
@@ -867,13 +868,12 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 
 drawscroll() {
 	tput sc
-	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
-		tput cup $titleypos $((width-4)); echo -en "[↕]"
-	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then
-		tput cup $titleypos $((width-4)); echo -en "[↓]"
-	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then
-		tput cup $titleypos $((width-4)); echo -en "[↑]"
-	fi
+	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↕]"
+	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↓]"
+	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="[↑]"
+	else return; fi
+
+	tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"
 
 	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-(buffsize+2))) ]]; then 
 		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(((buffsize-y)+(buffpos+2)))
@@ -935,6 +935,7 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37
 		drawm_ltitle=""
 		drawm_lcolor=""
 	fi
+	if [[ -n $scroll_symbol ]]; then tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"; fi
 	tput rc
 	# drawscroll
 }
