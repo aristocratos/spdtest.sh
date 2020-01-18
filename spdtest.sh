@@ -14,10 +14,8 @@
 # TODO fix up README.md
 # TODO extern config and save to config?
 # TODO ssh controlmaster, server, client
-# TODO grc funtion in bash function?
+# TODO grc function in bash function?
 # TODO plot speedgraphs overtime in UI
-# TODO translate remaining swedish...
-# TODO options menu, window box function
 # TODO grc, grc.conf, speedtest and speedtest-cli to /dev/shm ?
 # TODO buffer logview
 # TODO route test menu, choose host to test
@@ -35,6 +33,10 @@ precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if s
 precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
 precheck_down="50"		#* Download speed in unit defined above that blocks slowcheck
 precheck_up="50"		#* Upload speed in unit defined above that blocks slowcheck
+precheck_ssh="admin@192.168.1.1" #* If set to "user@host" precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
+						#* remote machine need to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
+						#* copy SSH keys to server or you will get asked for password at every start, guide: https://www.ssh.com/ssh/copy-id
+precheck_ssh_nd="auto"  #* Net device on remote machine to get speeds from, set to auto if unsure
 waittime="00:15:00"		#* Default wait timer between slow checks, format: "HH:MM:SS"
 slowwait="00:05:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
 idle="false"			#* If "true", resets timer if keyboard or mouse activity is detected in X Server, needs getIdle to work
@@ -48,7 +50,7 @@ loglevel=2				#* 0 : No logging
 						#* 4 : Log all including forced tests
 quiet_start="true"		#* If "true", don't print serverlist and routelist at startup
 maxlogsize="100"		#* Max logsize (in kilobytes) before log is rotated
-# logcompress="gzip"	#* Command for compressing rotated logs, uncomment to enable
+# logcompress="gzip"	#* Command for compressing rotated logs, disabled if not set
 # logname=""			#* Custom logfile (full path), if a custom logname is set, log rotation is disabled
 max_buffer="1000"		#* Max number of lines to buffer in internal scroll buffer, set to 0 to disable, disabled if use_shm="false"
 buffer_save="true"		#* Save buffer to disk on exit and restore on start
@@ -70,11 +72,11 @@ export spdtest_grcconf="./grc/grc.conf"
 
 #! Variables below are for internal function, don't change unless you know what you are doing
 if [[ $use_shm == true && -d /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp"; max_buffer=0; fi
-secfile="$temp/spdtest-sec.$$"
-speedfile="$temp/spdtest-speed.$$"
-routefile="$temp/spdtest-route.$$"
-tmpout="$temp/spdtest-tmpout.$$"
-bufferfile="$temp/spdtest-buffer.$$"
+secfile="${temp}/spdtest-sec.$$"
+speedfile="${temp}/spdtest-speed.$$"
+routefile="${temp}/spdtest-route.$$"
+tmpout="${temp}/spdtest-tmpout.$$"
+bufferfile="${temp}/spdtest-buffer.$$"
 funcname=$(basename "$0"); funcname=${funcname::15}
 startup=1
 forcetest=0
@@ -280,10 +282,7 @@ if [[ $net_device == "auto" ]]; then
 else
 	# shellcheck disable=SC2013
 	for good_device in $(grep ":" /proc/net/dev | awk '{print $1}' | sed "s/:.*//"); do
-        if [[ "$net_device" = "$good_device" ]]; then
-                is_good=1
-                break
-        fi
+        if [[ "$net_device" = "$good_device" ]]; then is_good=1; break; fi
 	done
 	if [[ $is_good -eq 0 ]]; then
 			echo "Net device \"$net_device\" not found. Should be one of these:"
@@ -291,6 +290,33 @@ else
 			exit 1
 	fi
 fi
+
+if [[ -n $precheck_ssh ]]; then
+	if ! ping -qc1 -w5 "${precheck_ssh#*@}" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh\""; exit 1; fi
+	ssh_socket="$temp/spdtest.ssh_socket.$$"
+	ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
+	if [[ $precheck_ssh_nd == "auto" ]]; then
+		precheck_ssh_nd=$(ssh -S "$ssh_socket" "$precheck_ssh" 'ip route')
+		precheck_ssh_nd=$(echo "$precheck_ssh_nd" | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
+	else
+		is_good=0; ssh_grep=$(ssh -S "$ssh_socket" "$precheck_ssh" 'grep ":" /proc/net/dev')
+		for good_device in $(echo "$ssh_grep" | awk '{print $1}' | sed "s/:.*//"); do
+			if [[ "$precheck_ssh_nd" = "$good_device" ]]; then is_good=1; break; fi
+		done
+		if [[ $is_good -eq 0 ]]; then
+			echo "Remote machine net device \"$precheck_ssh_nd\" not found. Should be one of these:"
+			echo "$ssh_grep" | awk '{print $1}' | sed "s/:.*//"
+			exit 1
+		fi
+		unset ssh_grep is_good
+	fi
+	proc_nd="$precheck_ssh_nd"
+else
+	proc_nd="$net_device"
+fi
+
+
+
 
 net_status="$(</sys/class/net/"$net_device"/operstate)"
 
@@ -319,6 +345,7 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 		rm $tmpout >/dev/null 2>&1
 		if [[ $buffer_save == "true" && -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
 		rm $bufferfile >/dev/null 2>&1
+		if [[ -n $precheck_ssh ]] && ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then ssh -S "$ssh_socket" -O exit "$precheck_ssh" >/dev/null 2>&1; fi
 		tput clear
 		tput cvvis
 		stty echo
@@ -411,21 +438,27 @@ myip() { #? Get public IP
 	curl -s ipinfo.io/ip
 	}
 
+getproc() { #? Get /proc/dev/net 
+	if [[ -n $precheck_ssh ]]; then
+		ssh -S "$ssh_socket" "$precheck_ssh" "grep $proc_nd /proc/net/dev"
+	else
+		grep "$proc_nd" /proc/net/dev
+	fi	
+}
+
 getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"> <sample time in seconds> <["get"][value from previous get]>
 	local line svalue speed total awkline slp=${2:-3} sdir=${1:-down}
 	# shellcheck disable=SC2016
 	if [[ $sdir == "down" ]]; then awkline='{print $1}'
 	elif [[ $sdir == "up" ]]; then awkline='{print $9}'
 	else return; fi
-	line=$(grep "$net_device" /proc/net/dev | sed "s/.*://")
-	svalue=$(echo "$line" | awk "$awkline")
+	svalue=$(getproc | sed "s/.*://" | awk "$awkline")
 	if [[ $3 == "get" ]]; then echo "$svalue"; return; fi
-	if [[ -n $3 && $3 != "get" ]]; then speed=$(echo "($svalue - $3) / ($slp - ($slp * 0.028))" | bc); echo $(((speed*unitop)>>20)); return; fi
+	if [[ -n $3 && $3 != "get" ]]; then speed=$(echo "($svalue - $3) / $slp" | bc); echo $(((speed*unitop)>>20)); return; fi
 	total=$((svalue))
 	sleep "$slp"
-	line=$(grep "$net_device" /proc/net/dev | sed "s/.*://")
-	svalue=$(echo "$line" | awk "$awkline")
-	speed=$(echo "($svalue - $total) / ($slp - ($slp * 0.028))" | bc)
+	svalue=$(getproc | sed "s/.*://" | awk "$awkline")
+	speed=$(echo "($svalue - $total) / $slp" | bc)
 	echo $(((speed*unitop)>>20))
 }
 
@@ -487,6 +520,10 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 	local ib=10
 	local t=$((precheck_samplet*10))
 	drawm "Checking bandwidth usage" "$yellow"
+	if [[ -n $precheck_ssh ]] && ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then
+		writelog 8 "Disconnected from ${precheck_ssh#*@}, reconnecting..."
+		ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
+	fi
 	echo -en "Checking bandwidth usage: ${bold}$(progress 0)${reset}\r"
 	sndvald="$(getcspeed "down" 0 "get")"
 	sndvalu="$(getcspeed "up" 0 "get")"
@@ -525,8 +562,6 @@ testspeed() { #? Using official Ookla speedtest client
 	local routetemp routeadd
 	unset 'errorlist[@]'
 	unset 'routelistb[@]'
-	#unset 'routelistbdesc[@]'
-	# RANDOM=$$$(date +%s)
 	testing=1
 
 	if [[ $mode == "full" && $numslowservers -ge ${#testlista[@]} ]]; then max_tests=$((${#testlista[@]}-1))
@@ -586,7 +621,7 @@ testspeed() { #? Using official Ookla speedtest client
 			sleep 0.01
 			x=$((x+1))
 		done
-
+		sleep 0.1
 		while [[ $stype == "download" ]]; do
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth'); down_speed=$(((down_speed*unitop)>>20))
 			down_progress=$(echo "$speedstring" | jq '.download.progress'); down_progress=$(echo "$down_progress*100" | bc -l 2> /dev/null)
