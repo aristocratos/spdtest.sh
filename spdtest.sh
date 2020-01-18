@@ -2,7 +2,8 @@
 # shellcheck disable=SC1090  #can't follow non constant source
 # shellcheck disable=SC2034  #unused variables
 # shellcheck disable=SC2001 #sed
-#shellcheck disable=SC2207 # read -a, mapfile warning
+# shellcheck disable=SC2207 # read -a, mapfile warning
+# shellcheck disable=SC2119 # function warnings
 
 #? @note TODOs
 
@@ -20,6 +21,7 @@
 # TODO grc, grc.conf, speedtest and speedtest-cli to /dev/shm ?
 # TODO buffer logview
 # TODO route test menu, choose host to test
+# TODO windows: help, options, route, timer   <----------------------
 
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
@@ -108,6 +110,7 @@ err=""
 menuypos=1
 main_menu=""
 main_menu_len=0
+menu_status=0
 width=$(tput cols)
 height=$(tput lines)
 precheck_status=""
@@ -390,7 +393,7 @@ waiting() { #? Show animation and text while waiting for background job, argumen
 redraw() { #? Redraw menu and reprint buffer if window is resized
 	width=$(tput cols)
 	height=$(tput lines)
-	menuypos=$(((main_menu_len/width)+1))
+	if menu; then menuypos=$(((main_menu_len/width)+1)); else menuypos=0; fi
 	#if [[ $width -lt 106 ]]; then menuypos=2; else menuypos=1; fi
 	titleypos=$((menuypos+1))
 	buffpos=$((titleypos+1))
@@ -399,6 +402,7 @@ redraw() { #? Redraw menu and reprint buffer if window is resized
 	if ! buffer; then tput sc; tput cup $buffpos 0; tput el; tput rc
 	else buffer "redraw"; fi
 	drawm
+	sleep 0.1
 }
 
 myip() { #? Get public IP
@@ -849,7 +853,7 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 	echo -e "$buffout"
 
 	elif [[ $1 == "redraw" ]]; then
-		scrolled=0
+		scrolled=${2:-$scrolled}
 		buffout=$(buffline)
 		tput cup $buffpos 0; tput ed
 		echo -e "$buffout"
@@ -882,6 +886,22 @@ drawscroll() {
 	tput rc
 }
 
+menu() { #* Menu handler, no arguments returns 0 for shown menu, arguments: toggle toggle_keep
+	if [[ -z $1 && $menu_status -ne 0 ]]; then return 0
+	elif [[ -z $1 ]]; then return 1; fi
+
+	if [[ $1 == "toggle" && $menu_status -ne 2 ]]; then
+		if [[ $menu_status -eq 0 ]]; then menu_status=1
+		elif [[ $menu_status -eq 1 ]]; then menu_status=0; fi
+	elif [[ $1 == "toggle_keep" ]]; then
+		if [[ $menu_status -eq 0 ]]; then menu_status=2
+		elif [[ $menu_status -ge 1 ]]; then menu_status=0; fi
+	fi
+	redraw calc
+	if [[ $menu_status -eq 0 ]]; then buffer redraw; fi
+	drawm
+}
+
 gen_menu(){
 	if [[ $paused == "true" ]]; then ovs="${green}On${white}"; else ovs="${red}Off${white}"; fi
 	if [[ $idle == "true" ]]; then idl="${green}On${white}"; else idl="${red}Off${white}"; fi
@@ -898,7 +918,7 @@ gen_menu(){
 	"[${underline}${green}T${reset}${bold}est] "
 	"[${underline}${cyan}F${reset}${bold}orce test] "
 	"[${underline}${magenta}U${reset}${bold}pdate servers] "
-	"[${underline}${yellow}C${reset}${bold}lear screen]"
+	"[${underline}${yellow}C${reset}${bold}lear buffer]"
 	)
 	main_menu=$(printf %s "${menu_array[@]}" $'\n')
 	menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
@@ -911,7 +931,7 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37
 	tput sc
 	if [[ $trace_errors == "true" ]]; then tput cup 0 55; echo -en "$trace_msg"; fi
 	tput cup 0 0; tput el
-	echo -e "[${bold}${underline}${red}Q${reset}${bold}uit] [H${underline}${yellow}e${reset}${bold}lp] [$funcname]\c"
+	echo -e "${bold}[${funcname::15}] [${underline}${green}M${reset}${bold}enu] [H${underline}${yellow}e${reset}${bold}lp] [${bold}${underline}${red}Q${reset}${bold}uit]\c"
 	if [[ -n $lastspeed ]]; then
 		echo -e " [Last: $lastspeed $unit]\c"
 	fi
@@ -922,8 +942,10 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37
 	logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
 	tput cup 0 $((width-${#logtl}))
 	echo -e "$logt"
-	tput cup 1 0; tput el
-	echo -en "$main_menu"; tput el
+	if menu; then
+		tput cup 1 0; tput el
+		echo -en "$main_menu"; tput el
+	fi
 	tput cup $titleypos 0
 	printf "${bold}%0$(tput cols)d${reset}" 0 | tr '0' '='
 	if [[ -n $1 ]]; then 
@@ -1056,7 +1078,7 @@ inputwait() { #? Timer and input loop
 		fi
 		tput rc
 		
-		read -srd '' -t 0.0001 -n 10000
+		read -srd '' -t 0.0001 -n 10000 >/dev/null 2>&1
 		# shellcheck disable=SC2162
 		read -srn 1 -t 0.9999 keyp
 		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp ; fi
@@ -1080,8 +1102,10 @@ inputwait() { #? Timer and input loop
 				;;
 			H) secs=$(( secs + 3600 )); updatesec=1;;
 			h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
-			M) secs=$(( secs + 60 )); updatesec=1 ;;
-			m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
+			#M) secs=$(( secs + 60 )); updatesec=1 ;;
+			#m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
+			m) if menu; then menu toggle_keep; else menu toggle; fi ;;
+			M) menu toggle_keep ;;
 			S) secs=$(( secs + 1 )); updatesec=1 ;;
 			s) if [[ $secs -gt 1 ]]; then secs=$(( secs - 1 )); updatesec=1 ; fi ;;
 			a|A)
@@ -1133,7 +1157,8 @@ inputwait() { #? Timer and input loop
 		fi
 		if [[ $secs -gt $oldsecs && -n $idletimer && $idle == "true" && $idledone == 1 && $idlebreak == 0 && $paused == "false" ]]; then idlebreak=1; idledone=0; break; fi
 	done
-	if [[ $scrolled -gt 0 ]]; then buffer "redraw"; fi
+	if menu; then menu toggle; fi
+	if [[ $scrolled -gt 0 ]]; then buffer "redraw" 0; fi
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idlebreak == 0 ]]; then idledone=1; fi
 	if kill -0 "$secpid" >/dev/null 2>&1; then kill $secpid >/dev/null 2>&1; fi
 }
@@ -1258,7 +1283,7 @@ set -o errtrace
 trap traperr ERR
 fi
 
-if [[ $buffer_save == "true" && -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw"; fi
+if [[ $buffer_save == "true" && -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
 if [[ $debug == "true" ]]; then debug1; fi #* Remove
 
 #writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
