@@ -75,7 +75,7 @@ speedfile="$temp/spdtest-speed.$$"
 routefile="$temp/spdtest-route.$$"
 tmpout="$temp/spdtest-tmpout.$$"
 bufferfile="$temp/spdtest-buffer.$$"
-funcname=$(basename "$0")
+funcname=$(basename "$0"); funcname=${funcname::15}
 startup=1
 forcetest=0
 detects=0
@@ -375,6 +375,8 @@ random() { #? Random (number[s])(number[s] in array)(value[s] in array) generato
 		done
 	fi
 }
+
+
 
 
 waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
@@ -805,7 +807,7 @@ buffline() { #? Get current buffer from scroll position and window height, cut o
 }
 
 
-buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"], no argument returns exit codes for buffer availability
+buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
 	if [[ -z $1 && $max_buffer -le buffsize ]]; then return 1
 	elif [[ -z $1 && $max_buffer -gt $buffsize ]]; then return 0
 	elif [[ $max_buffer -le $buffsize ]]; then return; fi
@@ -870,7 +872,7 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 	sleep 0.001
 }
 
-drawscroll() {
+drawscroll() { #? Draw scrollbar and scroll direction arrow
 	tput sc
 	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↕]"
 	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↓]"
@@ -886,7 +888,7 @@ drawscroll() {
 	tput rc
 }
 
-menu() { #* Menu handler, no arguments returns 0 for shown menu, arguments: toggle toggle_keep
+menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: toggle toggle_keep
 	if [[ -z $1 && $menu_status -ne 0 ]]; then return 0
 	elif [[ -z $1 ]]; then return 1; fi
 
@@ -902,7 +904,7 @@ menu() { #* Menu handler, no arguments returns 0 for shown menu, arguments: togg
 	drawm
 }
 
-gen_menu(){
+gen_menu(){ #? Generate main menu and adapt for window width
 	if [[ $paused == "true" ]]; then ovs="${green}On${white}"; else ovs="${red}Off${white}"; fi
 	if [[ $idle == "true" ]]; then idl="${green}On${white}"; else idl="${red}Off${white}"; fi
 
@@ -930,13 +932,15 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37
 	if [[ $testonly == "true" ]]; then return; fi
 	tput sc
 	if [[ $trace_errors == "true" ]]; then tput cup 0 55; echo -en "$trace_msg"; fi
-	tput cup 0 0; tput el
-	echo -e "${bold}[${funcname::15}] [${underline}${green}M${reset}${bold}enu] [H${underline}${yellow}e${reset}${bold}lp] [${bold}${underline}${red}Q${reset}${bold}uit]\c"
+	tput cup 0 0; tput el; tput cup 0 $(((width / 2)-(${#funcname} / 2)))
+	echo -en "${bold}[$funcname]"
+	tput cup 0 0
+	echo -en "[${underline}${green}M${reset}${bold}enu] [H${underline}${yellow}e${reset}${bold}lp] [${bold}${underline}${red}Q${reset}${bold}uit]"
 	if [[ -n $lastspeed ]]; then
-		echo -e " [Last: $lastspeed $unit]\c"
+		echo -en " [Last: $lastspeed $unit]"
 	fi
 	if [[ $detects -ge 1 && $width -ge 100 ]]; then
-		echo -e " [Slow detects: $detects]\c"
+		echo -en " [Slow detects: $detects]"
 	fi
 	logt="[Log:][${underline}${magenta}V${reset}${bold}iew][${logfile##log/}]"
 	logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
@@ -962,15 +966,14 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37
 	# drawscroll
 }
 
-tcount() { #? Run timer count in background and write to shared memory
-	lsec="$1"
+tcount() { #? Run timer count and write to shared memory, meant to be run in background
+	local rsec lsec="$1"
 	echo "$lsec" > "$secfile"
-	secbkp=$((lsec + 1))
+	local secbkp=$((lsec + 1))
 	while [[ $lsec -gt 0 ]]; do
-		if [[ $idle == "true" ]] && [[ $(./getIdle) -lt 1 ]]; then
-		lsec=$secbkp
-		fi
-		sleep 1
+		rsec=$(date +%s)
+		if [[ $idle == "true" ]] && [[ $(./getIdle) -lt 1 ]]; then lsec=$secbkp; fi
+		while [[ $rsec -eq $(date +%s) ]]; do sleep 0.25; done
 		lsec=$((lsec - 1))
 		echo "$lsec" > "$secfile"
 	done
