@@ -1,6 +1,6 @@
 # spdtest.sh
 
-**Version:** 1.1.0  
+**Version:** 0.2.0  
 **Usage:** Script with UI for testing internet speed reability
 
 ## Description
@@ -31,7 +31,6 @@ Slighty modified grcat from grc version 1.11.3 included  .
 ## Optionals
 
 **[mtr](https://github.com/traviscross/mtr)** Needed if you want to check routes to slow servers  
-
 
 ## Included but optional
 
