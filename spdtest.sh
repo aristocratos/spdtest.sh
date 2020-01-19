@@ -33,9 +33,10 @@ precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if s
 precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
 precheck_down="50"		#* Download speed in unit defined above that blocks slowcheck
 precheck_up="50"		#* Upload speed in unit defined above that blocks slowcheck
-precheck_ssh="admin@192.168.1.1" #* If set to "user@host" precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
+precheck_ssh_host="192.168.1.1" #* If set to "host" precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
 						#* remote machine need to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
 						#* copy SSH keys to server or you will get asked for password at every start, guide: https://www.ssh.com/ssh/copy-id
+precheck_ssh_user="admin" #* Username for ssh connection
 precheck_ssh_nd="auto"  #* Net device on remote machine to get speeds from, set to auto if unsure
 waittime="00:15:00"		#* Default wait timer between slow checks, format: "HH:MM:SS"
 slowwait="00:05:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
@@ -289,13 +290,15 @@ else
 			grep ":" /proc/net/dev | awk '{print $1}' | sed "s/:.*//"
 			exit 1
 	fi
+	unset is_good good_device
 fi
 
-if [[ -n $precheck_ssh ]]; then
-	if ! ping -qc1 -w5 "${precheck_ssh#*@}" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh\""; exit 1; fi
+if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
+	precheck_ssh="${precheck_ssh_user}@${precheck_ssh_host}"
+	if ! ping -qc1 -w5 "$precheck_ssh_host" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh\""; exit 1; fi
 	ssh_socket="$temp/spdtest.ssh_socket.$$"
 	ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
-	if [[ $precheck_ssh_nd == "auto" ]]; then
+	if [[ $precheck_ssh_nd == "auto" || -z $precheck_ssh_nd ]]; then
 		precheck_ssh_nd=$(ssh -S "$ssh_socket" "$precheck_ssh" 'ip route')
 		precheck_ssh_nd=$(echo "$precheck_ssh_nd" | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
 	else
@@ -308,7 +311,7 @@ if [[ -n $precheck_ssh ]]; then
 			echo "$ssh_grep" | awk '{print $1}' | sed "s/:.*//"
 			exit 1
 		fi
-		unset ssh_grep is_good
+		unset ssh_grep is_good good_device
 	fi
 	proc_nd="$precheck_ssh_nd"
 else
@@ -521,7 +524,7 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 	local t=$((precheck_samplet*10))
 	drawm "Checking bandwidth usage" "$yellow"
 	if [[ -n $precheck_ssh ]] && ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then
-		writelog 8 "Disconnected from ${precheck_ssh#*@}, reconnecting..."
+		writelog 8 "Disconnected from $precheck_ssh_host, reconnecting..."
 		ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
 	fi
 	echo -en "Checking bandwidth usage: ${bold}$(progress 0)${reset}\r"
@@ -939,7 +942,7 @@ menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: togg
 	drawm
 }
 
-gen_menu(){ #? Generate main menu and adapt for window width
+gen_menu() { #? Generate main menu and adapt for window width
 	if [[ $paused == "true" ]]; then ovs="${green}On${white}"; else ovs="${red}Off${white}"; fi
 	if [[ $idle == "true" ]]; then idl="${green}On${white}"; else idl="${red}Off${white}"; fi
 
