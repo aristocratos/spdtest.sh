@@ -4,6 +4,7 @@
 # shellcheck disable=SC2001 #sed
 # shellcheck disable=SC2207 # read -a, mapfile warning
 # shellcheck disable=SC2119 # function warnings
+# shellcheck disable=SC2086 # double quoute warning
 
 aa_TODOs() { echo -n;
 
