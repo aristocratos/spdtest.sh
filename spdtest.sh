@@ -518,7 +518,7 @@ drawscroll() { #? Draw scrollbar and scroll direction arrow
 }
 
 gen_menu() { #? Generate main menu and adapt for window width
-	local i menuconv underpos color mend
+	local i menuconv underpos color mend nline nlinex
 	if [[ $paused == "true" ]]; then paustate="${green}On${white}"; else paustate="${red}Off${white}"; fi
 	if [[ $idle == "true" ]]; then idlstate="${green}On${white}"; else idlstate="${red}Off${white}"; fi
 
@@ -546,20 +546,22 @@ gen_menu() { #? Generate main menu and adapt for window width
 	# "[${underline}${yellow}C${reset}${bold}lear buffer]"
 	# )
 	#menuconvl=$(printf %s "${menu_array[@]}")
-	main_menu="${bold}"; menuconv=0
+	main_menu="${bold}"; menuconv=0; nlinex=1
 	for i in "${menu_array[@]}"; do
 		color=${i##*.*.}; i=${i%.*}
 		underpos=$((${i##*.}-1)); i=${i%.*}
+		if [[ $i == "Pause" && $paused == "true" ]] || [[ $i == "Idle" && $idle == "true" ]]; then menuconv=$((menuconv+3))
+		elif [[ $i == "Pause" && $paused != "true" ]] || [[ $i == "Idle" && $idle != "true" ]]; then menuconv=$((menuconv+4)); fi
+		menuconv=$((menuconv+${#i}+3)); if [[ $menuconv -ge $((width*nlinex)) ]]; then nline="\n "; nlinex=$((nlinex+1)); else nline=""; fi
 		if [[ $i == "Pause" ]]; then i="$i $paustate"; elif [[ $i == "Idle" ]]; then i="$i $idlstate"; fi
-		menuconv=$((menuconv+${#i}+3))
 		if [[ $underpos -gt 0 ]]; then i="${i:0:$((underpos))}${underline}${!color}${i:$underpos:1}${reset}${bold}${i:$((underpos+1))}"
 		else i="${underline}${!color}${i:0:1}${reset}${bold}${i:$((underpos+1))}"; fi
-		main_menu="${main_menu}[${i}] "
+		main_menu="${main_menu}${nline}[${i}] "
 	done
 
 	#main_menu=$(printf %s "${menu_array[@]}" $'\n')
 	#menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
-	if [[ $main_menu_len -ne ${#menuconv} ]]; then main_menu_len=${#menuconv}; redraw calc; fi
+	if [[ $main_menu_len -ne $menuconv ]]; then main_menu_len=$menuconv; redraw calc; fi
 }
 
 getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"> <sample time in seconds> <["get"][value from previous get]>
@@ -920,6 +922,7 @@ redraw() { #? Redraw menu and reprint buffer if window is resized
 	if [[ $1 == "calc" ]]; then return; fi
 	if ! buffer; then tput sc; tput cup $buffpos 0; tput el; tput rc
 	else buffer "redraw"; fi
+	gen_menu
 	drawm
 	sleep 0.1
 }
