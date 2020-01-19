@@ -5,7 +5,7 @@
 # shellcheck disable=SC2207 # read -a, mapfile warning
 # shellcheck disable=SC2119 # function warnings
 
-#? @note TODOs
+aa_TODOs() { echo -n;
 
 # TODO Fix argument parsing and error messages
 # TODO Change slowtest to multiple servers and compare results
@@ -21,8 +21,10 @@
 # TODO route test menu, choose host to test
 # TODO windows: help, options, route, timer   <----------------------
 
+}
 
-#?> Start variables ------------------------------------------------------------------------------------------------------------------> @note Start variables
+#?> Start variables ------------------------------------------------------------------------------------------------------------------>
+aa_variables() { echo -n; }
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
 unit="mbit"				#* Valid values are "mbit" and "mbyte"
 slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
@@ -33,9 +35,9 @@ precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if s
 precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
 precheck_down="50"		#* Download speed in unit defined above that blocks slowcheck
 precheck_up="50"		#* Upload speed in unit defined above that blocks slowcheck
-precheck_ssh_host="192.168.1.1" #* If set to "host" precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
-						#* remote machine need to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
-						#* copy SSH keys to server or you will get asked for password at every start, guide: https://www.ssh.com/ssh/copy-id
+precheck_ssh_host="192.168.1.1" #* If set, precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
+						#* remote machine needs to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
+						#* copy SSH keys to remote machine if you don't want to be asked for password at start, guide: https://www.ssh.com/ssh/copy-id
 precheck_ssh_user="admin" #* Username for ssh connection
 precheck_ssh_nd="auto"  #* Net device on remote machine to get speeds from, set to auto if unsure
 waittime="00:15:00"		#* Default wait timer between slow checks, format: "HH:MM:SS"
@@ -44,6 +46,7 @@ idle="false"			#* If "true", resets timer if keyboard or mouse activity is detec
 # idletimer="00:30:00"	#* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
 						#* any X Server activity resets back to idletimer, format: "HH:MM:SS"
 displaypause="false"	#* If "true" automatically pauses timer when display is on, unpauses when off, overrides idle="true" if set, needs xset to work
+main_menu_start="shown" #* The status of the main menu at start, possible values: "shown", "hidden"
 loglevel=2				#* 0 : No logging
 						#* 1 : Log only when slow speed has been detected
 						#* 2 : Also log slow speed check
@@ -129,6 +132,7 @@ if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/
 if [[ $use_shm != "true" && $max_buffer -ne 0 ]]; then max_buffer=0; fi
 if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
 if [[ $max_buffer -gt 0 && $max_buffer -le $((height*2)) ]]; then max_buffer=$((height*2)); fi
+if [[ $main_menu_start == "shown" ]]; then menu_status=2; fi
 
 #? Colors
 reset="\e[0m"
@@ -275,9 +279,15 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 	shift
 done
 
+#? End argument parsing ------------------------------------------------------------------------------------------------------------------>
+
+#? Open SSH control master and get network devices if set to "auto", otherwise check that devices are valid ------------------------------>
+arr_network_init() { echo; } 
+
 if [[ $loglevel -gt 4 ]]; then loglevel=4; fi
 if [[ $unit = "mbyte" ]]; then unit="MB/s"; unitop="1"; else unit="Mbps"; unitop="8"; fi
 if [[ $displaypause == "true" ]]; then idle="false"; fi
+
 if [[ $net_device == "auto" ]]; then
 	net_device=$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
 else
@@ -298,6 +308,7 @@ if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
 	if ! ping -qc1 -w5 "$precheck_ssh_host" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh\""; exit 1; fi
 	ssh_socket="$temp/spdtest.ssh_socket.$$"
 	ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
+	if ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then echo "Could not connect to remote machine \"$precheck_ssh\""; exit 1; fi
 	if [[ $precheck_ssh_nd == "auto" || -z $precheck_ssh_nd ]]; then
 		precheck_ssh_nd=$(ssh -S "$ssh_socket" "$precheck_ssh" 'ip route')
 		precheck_ssh_nd=$(echo "$precheck_ssh_nd" | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
@@ -318,17 +329,99 @@ else
 	proc_nd="$net_device"
 fi
 
-
-
-
 net_status="$(</sys/class/net/"$net_device"/operstate)"
-
-#? End argument parsing ------------------------------------------------------------------------------------------------------------------>
 
 #? Start functions ------------------------------------------------------------------------------------------------------------------>
 
+ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints every "x" number of times
+			if [[ $animx -eq $1 ]]; then
+				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
+				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
+			fi
+			animx=$((animx+1))
+}
+
 broken() {
 	if [[ $broken -eq 1 ]]; then return 0; else return 1; fi
+}
+
+buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
+	if [[ -z $1 && $max_buffer -le buffsize ]]; then return 1
+	elif [[ -z $1 && $max_buffer -gt $buffsize ]]; then return 0
+	elif [[ $max_buffer -le $buffsize ]]; then return; fi
+
+	local buffout scrtext y x
+	bufflen=$(wc -l <"$bufferfile")
+
+	if [[ $1 == "add" && -n $2 ]]; then
+		local addlen addline buffer
+		scrolled=0
+		addline="$2"
+		addlen=$(echo -en "$addline" | wc -l)
+		if [[ $addlen -ge $max_buffer ]]; then echo -e "$(echo -e "$addline" | tail -n"$max_buffer")\n" > "$bufferfile"
+		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n$(((max_buffer-addlen)-(max_buffer/10))) <"$bufferfile")\n$addline"; echo -e "$buffer" > "$bufferfile"
+		else echo -e "${buffer}${addline}" >> "$bufferfile"
+		fi
+		bufflen=$(wc -l <"$bufferfile")
+		drawscroll
+		return
+
+	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
+	scrolled=$((scrolled+1))
+	tput cup $buffpos 0
+	buffout=$(buffline)
+	tput ed; echo -e "$buffout"
+
+	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then
+	scrolled=$((scrolled-1))
+	buffout=$(buffline)
+	tput sc; tput cup $buffpos 0; tput ed; tput sc
+	echo -e "$buffout"
+	
+	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
+	scrolled=$((scrolled+buffsize))
+	if [[ $scrolled -gt $((bufflen-(buffsize+2))) ]]; then scrolled=$((bufflen-(buffsize+2))); fi
+	tput cup $buffpos 0
+	buffout=$(buffline)
+	tput ed; echo -e "$buffout"
+	
+	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then
+	scrolled=$((scrolled-buffsize))
+	if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
+	buffout=$(buffline)
+	tput cup $buffpos 0; tput ed
+	echo -e "$buffout"
+
+	elif [[ $1 == "redraw" ]]; then
+		scrolled=${2:-$scrolled}
+		buffout=$(buffline)
+		tput cup $buffpos 0; tput ed
+		echo -e "$buffout"
+		if [[ $testing -eq 1 ]]; then echo; fi
+
+	elif [[ $1 == "clear" ]]; then
+		true > "$bufferfile"
+		scrolled=0
+		tput cup $buffpos 0; tput ed
+	fi
+
+	drawscroll
+
+	sleep 0.001
+}
+
+buffline() { #? Get current buffer from scroll position and window height, cut off text wider than window width
+	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat
+}
+
+contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
+    local i n=$# value=${!n}
+    for ((i=1;i < $#;i++)) {
+        if [[ "${!i}" == "${value}" ]]; then
+            return 0
+        fi
+    }
+    return 1
 }
 
 ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing otherwise cleanup and exit
@@ -345,7 +438,6 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 		rm $secfile >/dev/null 2>&1
 		rm $speedfile >/dev/null 2>&1
 		rm $routefile >/dev/null 2>&1
-		rm $tmpout >/dev/null 2>&1
 		if [[ $buffer_save == "true" && -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
 		rm $bufferfile >/dev/null 2>&1
 		if [[ -n $precheck_ssh ]] && ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then ssh -S "$ssh_socket" -O exit "$precheck_ssh" >/dev/null 2>&1; fi
@@ -359,94 +451,82 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 	fi
 }
 
-traperr() {
-	if [[ ${BASH_LINENO[0]} =~ 1154|1151|1152 ]] || [[ "${BASH_LINENO[0]}" == "$err" ]]; then return; fi
-	local erri len
-	err="${BASH_LINENO[0]}"
-	trace_array+=("$err"); len=${#trace_array[@]}; trace_msg="${bold}${red}"
-	if [[ len -ge 10 ]]; then for((erri=(len-10);erri<=len;erri++)); do
-		trace_msg="$trace_msg${trace_array[$erri]} "
-	done; else trace_msg="$trace_msg${trace_array[$erri]} "; fi
-	trace_msg="$trace_msg${reset}"
-	tput sc; tput cup 0 55; echo -en "$trace_msg"; tput rc
-	return
-	#echo -e "$trace_msg"
-	#drawm
-}
-
-
-contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
-    local i n=$# value=${!n}
-    for ((i=1;i < $#;i++)) {
-        if [[ "${!i}" == "${value}" ]]; then
-            return 0
-        fi
-    }
-    return 1
-}
-
-random() { #? Random (number[s])(number[s] in array)(value[s] in array) generator, arguments: (int "start"-"end" ["amount"])/(array_int)/(array_value)
-	local x=${3:-1}
-
-	if [[ $1 == int && -n $2 ]]; then #? Random number[s] generator, usage: random int "start"-"end" ["amount"]
-		echo -n "$(shuf -i "$2" -n "$x" $rnd_src)"
-
-	elif [[ $1 == array_int && -n $2 ]]; then #? Random number[s] between 0 and array size, usage: random array_int "arrayname" ["amount"] ; use "*" as amount for all in random order
-		#shellcheck disable=SC2016
-		local arr_int='${#'"$2"'[@]}'; eval arr_int="$arr_int"
-		if [[ $x == "*" ]]; then x=$arr_int; fi
-		echo -n "$(shuf -i 0-$((arr_int-1)) -n "$x" $rnd_src)"
-
-	elif [[ $1 == array_value && -n $2 ]]; then  #? Random value[s] from array, usage: random array_value "arrayname" ["amount"] ; use "*" as amount for all in random order
-		local i rnd; rnd=($(random array_int "$2" "$3"))
-		for i in "${rnd[@]}"; do
-		local arr_value="${2}[$i]"
-		echo "${!arr_value}"
-		done
+drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37> <sleep time>
+	local curline tlength mline
+	if [[ $testonly == "true" ]]; then return; fi
+	tput sc
+	if [[ $trace_errors == "true" ]]; then tput cup 0 55; echo -en "$trace_msg"; fi
+	# tput cup 0 0; tput el; tput cup 0 $(( (width / 2)-(${#funcname} / 2) ))
+	# echo -en "${bold}[$funcname]"
+	tput cup 0 0; tput el
+	echo -en "[${underline}${green}M${reset}${bold}enu] [${underline}${yellow}H${reset}${bold}elp] [${bold}${underline}${red}Q${reset}${bold}uit]"
+	if [[ -n $lastspeed ]]; then
+		echo -en " [Last: $lastspeed $unit]"
 	fi
-}
-
-
-
-
-waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
-			local text=$2
-			local i spaces=""
-			while kill -0 "$1" >/dev/null 2>&1; do
-				for (( i=0; i<${#chars}; i++ )); do
-					sleep 0.2
-					if broken; then return; fi
-					echo -en "${bold}${white}$text ${red}${chars:$i:1} ${reset}" "\r"
-				done
-			done
-
-}
-
-redraw() { #? Redraw menu and reprint buffer if window is resized
-	width=$(tput cols)
-	height=$(tput lines)
-	if menu; then menuypos=$(((main_menu_len/width)+1)); else menuypos=0; fi
-	#if [[ $width -lt 106 ]]; then menuypos=2; else menuypos=1; fi
-	titleypos=$((menuypos+1))
-	buffpos=$((titleypos+1))
-	buffsize=$((height-buffpos-1))
-	if [[ $1 == "calc" ]]; then return; fi
-	if ! buffer; then tput sc; tput cup $buffpos 0; tput el; tput rc
-	else buffer "redraw"; fi
-	drawm
-	sleep 0.1
-}
-
-myip() { #? Get public IP
-	curl -s ipinfo.io/ip
-	}
-
-getproc() { #? Get /proc/dev/net 
-	if [[ -n $precheck_ssh ]]; then
-		ssh -S "$ssh_socket" "$precheck_ssh" "grep $proc_nd /proc/net/dev"
+	if [[ $detects -ge 1 && $width -ge 100 ]]; then
+		echo -en " [Slow detects: $detects]"
+	fi
+	logt="[Log:][${underline}${magenta}V${reset}${bold}iew][${logfile##log/}]"
+	logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
+	tput cup 0 $((width-${#logtl}))
+	echo -e "$logt"
+	if menu; then
+		tput cup 1 0; tput el
+		echo -en "$main_menu"; tput el
+	fi
+	tput cup $titleypos 0
+	printf "${bold}%0$(tput cols)d${reset}" 0 | tr '0' '='
+	if [[ -n $1 ]]; then 
+		tput cup "$titleypos" $(( (width / 2)-(${#1} / 2) ))
+		drawm_ltitle="$1"; drawm_lcolor="$2"
+		echo -en "${bold}${2:-$white}[${white}$1${2:-$white}]${reset}"
+		sleep "${3:-0}"
 	else
-		grep "$proc_nd" /proc/net/dev
-	fi	
+		drawm_ltitle=""
+		drawm_lcolor=""
+	fi
+	if [[ -n $scroll_symbol ]]; then tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"; fi
+	tput rc
+	# drawscroll
+}
+
+drawscroll() { #? Draw scrollbar and scroll direction arrow
+	tput sc
+	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↕]"
+	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↓]"
+	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="[↑]"
+	else return; fi
+
+	tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"
+
+	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-(buffsize+2))) ]]; then 
+		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(((buffsize-y)+(buffpos+2)))
+		tput cup "$y" $((width-1)); echo -en "${reverse}░${reset}"
+	fi
+	tput rc
+}
+
+gen_menu() { #? Generate main menu and adapt for window width
+	if [[ $paused == "true" ]]; then ovs="${green}On${white}"; else ovs="${red}Off${white}"; fi
+	if [[ $idle == "true" ]]; then idl="${green}On${white}"; else idl="${red}Off${white}"; fi
+
+	# main_menu="[Timer:][${underline}${green}HMS${reset}${bold}+][${underline}${red}hms${reset}${bold}-][S${underline}${yellow}a${reset}${bold}ve][${underline}${blue}R${reset}${bold}eset][${underline}${magenta}I${reset}${bold}dle $idl][${underline}${yellow}P${reset}${bold}ause $ovs] [${underline}${green}T${reset}${bold}est] [${underline}${cyan}F${reset}${bold}orce test] [${underline}${magenta}U${reset}${bold}pdate servers] [${underline}${yellow}C${reset}${bold}lear screen]"
+	menu_array=(
+	"${bold}[Timer:]"
+	"[${underline}${green}HMS${reset}${bold}+]"
+	"[${underline}${red}hms${reset}${bold}-]"
+	"[S${underline}${yellow}a${reset}${bold}ve]"
+	"[${underline}${blue}R${reset}${bold}eset]"
+	"[${underline}${magenta}I${reset}${bold}dle ${idl}]"
+	"[${underline}${yellow}P${reset}${bold}ause ${ovs}] "
+	"[${underline}${green}T${reset}${bold}est] "
+	"[${underline}${cyan}F${reset}${bold}orce test] "
+	"[${underline}${magenta}U${reset}${bold}pdate servers] "
+	"[${underline}${yellow}C${reset}${bold}lear buffer]"
+	)
+	main_menu=$(printf %s "${menu_array[@]}" $'\n')
+	menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
+	if [[ $main_menu_len -ne ${#menuconv} ]]; then main_menu_len=${#menuconv}; redraw calc; fi
 }
 
 getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"> <sample time in seconds> <["get"][value from previous get]>
@@ -465,55 +545,226 @@ getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"
 	echo $(((speed*unitop)>>20))
 }
 
-test_type_checker() { #? Check current type of test being run by speedtest
-		speedstring=$(tail -n1 < $speedfile)
-		stype=$(echo "$speedstring" | jq -r '.type')
-		if broken; then stype="broken"; fi
-		if [[ $stype == "log" ]]; then slowerror=1; return; fi
-		if ! kill -0 "$speedpid" >/dev/null 2>&1; then stype="ended"; fi
+getproc() { #? Get /proc/dev/net 
+	if [[ -n $precheck_ssh ]]; then
+		ssh -S "$ssh_socket" "$precheck_ssh" "grep $proc_nd /proc/net/dev"
+	else
+		grep "$proc_nd" /proc/net/dev
+	fi	
 }
 
-anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints every "x" number of times
-			if [[ $animx -eq $1 ]]; then
-				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
-				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
-			fi
-			animx=$((animx+1))
-}
+getservers() { #? Gets servers from speedtest-cli and optionally saves to file
+	unset 'testlista[@]'
+	unset 'testlistdesc[@]'
+	unset 'routelista[@]'
+	unset 'routelistadesc[@]'
+	local IFS=$'\n'
 
-progress() { #? Print progress bar, arguments: <percent> [<"text">] [<text color>] [<reset color>]
-	local text cs ce x i xp=0
-	local percent=${1:-0}
-	local text=${2:-$percent}
-	if [[ -n $3 ]]; then cs="$3"; ce="${4:-$white}"
-	else cs=""; ce=""
-	fi
-	
-	if [[ ${#text} -gt 10 ]]; then text=${text::10}; fi
-	
-	echo -n "["
+	if [[ $quiet_start = "true" && $loglevel -ge 3 ]]; then bkploglevel=$loglevel; loglevel=103
+	elif [[ $quiet_start = "true" && $loglevel -lt 3 ]]; then bkploglevel=$loglevel; loglevel=1000; fi
 
-	if [[ ! $((${#text}%2)) -eq 0 ]]; then 
-		if [[ $percent -ge 10 ]]; then 
-			echo -n "="
-		else 
-			echo -n " "
-		fi
-		xp=$((xp+1))
-	fi
-
-	for((x=1;x<=2;x++)); do
-		for((i=0;i<((10-${#text})/2);i++)); do
-			xp=$((xp+1))
-			if [[ $xp -le $((percent/10)) ]]; then echo -n "="
-			else echo -n " "
-			fi
+	if [[ -e $servercfg && $servercfg != "/dev/null" && $updateservers = 0 ]]; then
+		source "$servercfg"
+		writelog 3 "\nUsing servers from $servercfg"
+		local num=1
+		for tl in "${testlista[@]}"; do
+			writelog 3 "$num. ${testlistdesc["$tl"]}"
+			num=$((num+1))
 		done
-		if [[ $x -eq 1 ]]; then echo -en "${cs}${text}${ce}"; xp=$((xp+${#text})); fi
-	done
+	else
+		echo "#? Automatically generated server list, servers won't be refreshed at start if this file exists" >> "$servercfg"
+		$speedtest_cli --list  > $tmpout &
+		waiting $! "Fetching servers"; tput el
+		speedlist=$(head -$((numservers+1)) "$tmpout" | sed 1d)
+		rm $tmpout >/dev/null 2>&1
+		writelog 3 "Using servers:         "
+		local num=1
+		for line in $speedlist; do
+			servnum=${line:0:5}
+			servnum=${servnum%)}
+			servnum=${servnum# }
+			testlista+=("$servnum")
+			servlen=$((${#line} - 6))
+			servdesc=${line:(-servlen)}
+			servdesc=${servdesc# }
+			testlistdesc["$servnum"]="$servdesc"
+			echo -e "testlista+=(\"$servnum\");\t\ttestlistdesc[\"$servnum\"]=\"$servdesc\"" >> "$servercfg"
+			writelog 3 "$num. $servdesc"
+			num=$((num+1))
+		done
+	fi
+	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
+	numslowservers=${numslowservers:-$((num-1))}
+	writelog 3 "\n"
+	if [[ -e route.cfg.sh && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
+		# shellcheck disable=SC1091
+		source route.cfg.sh
+		writelog 3 "Hosts in route.cfg.sh:"
+		
+		for i in "${routelista[@]}"; do
+			writelog 3 "(${routelistdesc["$i"]}): $i"
+		done
+		writelog 3 "\n"
+	fi
 
-	echo -n "]"
+	if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
 }
+
+inputwait() { #? Timer and input loop
+	gen_menu
+	drawm
+
+	local IFS=:
+	# shellcheck disable=SC2048
+	# shellcheck disable=SC2086
+	set -- $*
+	if [[ -n $waitsaved && $idle != "true" ]]; then
+		secs=$waitsaved
+	elif [[ -n $idlesaved && $idle == "true" ]]; then
+		secs=$idlesaved
+	else
+		secs=$(( ${1#0} * 3600 + ${2#0} * 60 + ${3#0} ))
+	fi
+	stsecs=$secs
+	if [[ $paused = "false" ]]; then
+		tcount $secs &
+		secpid="$!"
+	fi
+	unset IFS
+
+
+	while [[ $secs -gt 0 ]]; do
+		tput sc; tput cup $titleypos $(( (width / 2)-4 ))
+		if [[ $secs -le 10 ]]; then
+			printf "${bold}[%02d:%02d:${red}%02d${reset}" $((secs/3600)) $(( (secs/60)%60 )) $((secs%60))
+		else
+			printf "${bold}[%02d:%02d:%02d]${reset}" $((secs/3600)) $(( (secs/60)%60 )) $((secs%60))
+		fi
+		tput rc
+		
+		read -srd '' -t 0.0001 -n 10000 >/dev/null 2>&1
+		# shellcheck disable=SC2162
+		read -srn 1 -t 0.9999 keyp
+		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp ; fi
+		case "$keyp" in
+			'[A') buffer "up" ;;
+			'[B') buffer "down" ;;
+			'[5~') buffer "pageup" ;;
+			'[6~') buffer "pagedown" ;;
+			p|P)
+				if [[ $displaypause == "true" && $paused == "true" ]]; then monitorOvr=1
+				elif [[ $displaypause == "true" && $paused == "false" ]] ; then monitorOvr=0; fi
+				pausetoggled=1
+				;;
+			t|T) break ;;
+			i|I)
+				if [[ $idle == "true" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="false"; break
+				elif [[ $idle == "false" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="true"; break
+				fi
+				if [[ $idle == "true" ]]; then idle="false"; else idle="true"; fi
+				secs=$stsecs; updatesec=1; gen_menu; drawm
+				;;
+			#H) secs=$(( secs + 3600 )); updatesec=1;;
+			#h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
+			#M) secs=$(( secs + 60 )); updatesec=1 ;;
+			#m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
+			m) if menu; then menu toggle_keep; else menu toggle; fi ;;
+			M) menu toggle_keep ;;
+			S) secs=$(( secs + 1 )); updatesec=1 ;;
+			s) if [[ $secs -gt 1 ]]; then secs=$(( secs - 1 )); updatesec=1 ; fi ;;
+			a|A)
+				if [[ -n $idletimer ]] && [[ $idle == "true" ]]; then idlesaved=$secs
+				else waitsaved=$secs; fi
+				updatesec=1
+				drawm "Timer saved!" "$green" 2; drawm
+				;;
+			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
+			f|F) forcetest=1; break ;;
+			v|V)
+				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat | less -rXx1; redraw full
+				 else drawm "Log empty!" "$red" 2; drawm
+				 fi
+				;;
+			H|h) printhelp ;;
+			c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
+				 else buffer "clear"
+				 fi ;;
+			u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
+			ö) echo "displaypause=$displaypause monitor=$(monitor) paused=$paused monitorOvr=$monitorOvr pausetoggled=$pausetoggled" ;;
+			q) ctrl_c ;;
+		esac
+		if [[ $displaypause == "true" &&  $(monitor) == "on" && $paused == "false" && $monitorOvr == 0 ]] || [[ $paused == "false" && $pausetoggled == 1 ]] ; then
+			paused="true"
+			pausetoggled=0
+			kill "$secpid" >/dev/null 2>&1
+			gen_menu
+			drawm
+		elif [[ $displaypause == "true" && $(monitor) == "off" && $paused == "true" ]] || [[ $paused == "true" && $pausetoggled == 1 ]]; then
+			paused="false"
+			if [[ $pausetoggled == 0 ]]; then monitorOvr=0; fi
+			pausetoggled=0
+			tcount $secs &
+			secpid="$!"
+			gen_menu
+			drawm
+		fi
+		if [[ $updatesec == 1 && $idledone == 0 && $paused == "true" ]]; then
+			updatesec=0;
+		elif [[ $updatesec == 1 && $idledone == 0 && $paused == "false" ]]; then
+			kill "$secpid" >/dev/null 2>&1
+			tcount $secs &
+			secpid="$!"
+			updatesec=0
+		elif [[ $paused == "false" ]]; then
+			oldsecs=$secs
+			secs=$(<"$secfile")
+		fi
+		if [[ $secs -gt $oldsecs && -n $idletimer && $idle == "true" && $idledone == 1 && $idlebreak == 0 && $paused == "false" ]]; then idlebreak=1; idledone=0; break; fi
+	done
+	if menu; then menu toggle; fi
+	if [[ $scrolled -gt 0 ]]; then buffer "redraw" 0; fi
+	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idlebreak == 0 ]]; then idledone=1; fi
+	if kill -0 "$secpid" >/dev/null 2>&1; then kill $secpid >/dev/null 2>&1; fi
+}
+
+logrotate() { #? Rename logfile, compress and create new if size is over $logsize
+	if [[ -n $logname ]]; then
+		logfile="$logname"
+	else
+		logfile="log/spdtest.log"
+		if [[ $loglevel == 0 ]]; then return; fi
+		if [[ ! -d log ]]; then mkdir log; fi
+		touch $logfile
+		logsize=$(du $logfile | tr -s '\t' ' ' | cut -d' ' -f1)
+		if [[ $logsize -gt $maxlogsize ]]; then
+			ts=$(date +%y-%m-%d-T:%H:%M)
+			mv $logfile "log/spdtest.$ts.log"
+			touch $logfile
+			# shellcheck disable=SC2154
+			if [[ -n $logcompress ]]; then $logcompress "log/spdtest.$ts.log"; fi
+		fi
+	fi
+}
+
+menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: toggle toggle_keep
+	if [[ -z $1 && $menu_status -ne 0 ]]; then return 0
+	elif [[ -z $1 ]]; then return 1; fi
+
+	if [[ $1 == "toggle" && $menu_status -ne 2 ]]; then
+		if [[ $menu_status -eq 0 ]]; then menu_status=1
+		elif [[ $menu_status -eq 1 ]]; then menu_status=0; fi
+	elif [[ $1 == "toggle_keep" ]]; then
+		if [[ $menu_status -eq 0 ]]; then menu_status=2
+		elif [[ $menu_status -ge 1 ]]; then menu_status=0; fi
+	fi
+	redraw calc
+	if [[ $menu_status -eq 0 ]]; then buffer redraw; fi
+	drawm
+}
+
+monitor() { xset q | grep -q "Monitor is On" && echo on || echo off; } #? Check if display is on with xset
+
+myip() { curl -s ipinfo.io/ip; } #? Get public IP
 
 precheck_speed() { #? Check current bandwidth usage before slowcheck
 	testing=1
@@ -554,6 +805,166 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 	fi
 	testing=0
 	#drawm
+}
+
+printhelp() { #? Prints help information in UI
+	echo ""
+	echo -e "Key:              Descripton:                           Key:              Description:"
+	echo -e "q                 Quit                                  e                 Show help information"
+	echo -e "c                 Clear screen                          v                 View current logfile with less"
+	echo -e "H                 Add 1 hour to timer                   h                 Remove 1 hour from timer"
+	echo -e "M                 Add 1 minute to timer                 m                 Remove 1 minute from timer"
+	echo -e "S                 Add 1 second to timer                 s                 Remove 1 second from timer"
+	echo -e "a                 Save wait timer                       r                 Reset wait timer"
+	echo -e "i                 Reset timer on X Server activity      p                 Pause timer"
+	echo -e "t                 Test if speed is slow                 f                 Run full tests without slow check"
+	echo -e "u                 Update serverlist\n"
+}
+
+progress() { #? Print progress bar, arguments: <percent> [<"text">] [<text color>] [<reset color>]
+	local text cs ce x i xp=0
+	local percent=${1:-0}
+	local text=${2:-$percent}
+	if [[ -n $3 ]]; then cs="$3"; ce="${4:-$white}"
+	else cs=""; ce=""
+	fi
+	
+	if [[ ${#text} -gt 10 ]]; then text=${text::10}; fi
+	
+	echo -n "["
+
+	if [[ ! $((${#text}%2)) -eq 0 ]]; then 
+		if [[ $percent -ge 10 ]]; then 
+			echo -n "="
+		else 
+			echo -n " "
+		fi
+		xp=$((xp+1))
+	fi
+
+	for((x=1;x<=2;x++)); do
+		for((i=0;i<((10-${#text})/2);i++)); do
+			xp=$((xp+1))
+			if [[ $xp -le $((percent/10)) ]]; then echo -n "="
+			else echo -n " "
+			fi
+		done
+		if [[ $x -eq 1 ]]; then echo -en "${cs}${text}${ce}"; xp=$((xp+${#text})); fi
+	done
+
+	echo -n "]"
+}
+
+random() { #? Random (number[s])(number[s] in array)(value[s] in array) generator, arguments: (int "start"-"end" ["amount"])/(array_int)/(array_value)
+	local x=${3:-1}
+
+	if [[ $1 == int && -n $2 ]]; then #? Random number[s] generator, usage: random int "start"-"end" ["amount"]
+		echo -n "$(shuf -i "$2" -n "$x" $rnd_src)"
+
+	elif [[ $1 == array_int && -n $2 ]]; then #? Random number[s] between 0 and array size, usage: random array_int "arrayname" ["amount"] ; use "*" as amount for all in random order
+		#shellcheck disable=SC2016
+		local arr_int='${#'"$2"'[@]}'; eval arr_int="$arr_int"
+		if [[ $x == "*" ]]; then x=$arr_int; fi
+		echo -n "$(shuf -i 0-$((arr_int-1)) -n "$x" $rnd_src)"
+
+	elif [[ $1 == array_value && -n $2 ]]; then  #? Random value[s] from array, usage: random array_value "arrayname" ["amount"] ; use "*" as amount for all in random order
+		local i rnd; rnd=($(random array_int "$2" "$3"))
+		for i in "${rnd[@]}"; do
+		local arr_value="${2}[$i]"
+		echo "${!arr_value}"
+		done
+	fi
+}
+
+redraw() { #? Redraw menu and reprint buffer if window is resized
+	width=$(tput cols)
+	height=$(tput lines)
+	if menu; then menuypos=$(((main_menu_len/width)+1)); else menuypos=0; fi
+	#if [[ $width -lt 106 ]]; then menuypos=2; else menuypos=1; fi
+	titleypos=$((menuypos+1))
+	buffpos=$((titleypos+1))
+	buffsize=$((height-buffpos-1))
+	if [[ $1 == "calc" ]]; then return; fi
+	if ! buffer; then tput sc; tput cup $buffpos 0; tput el; tput rc
+	else buffer "redraw"; fi
+	drawm
+	sleep 0.1
+}
+
+routetest() { #? Test routes with mtr
+	if [[ $mtr == "false" ]] || broken; then return; fi
+	testing=1
+	unset 'routelistc[@]'
+	local i ttime tcount pcount prc secs dtext port
+
+	if [[ -n ${routelistb[0]} ]]; then	routelistc+=("${routelistb[@]}"); fi
+	if [[ -n ${routelista[0]} ]]; then routelistc+=("${routelista[@]}"); fi
+	if [[ -z ${routelistc[0]} ]]; then testing=0; return; fi
+
+	for i in "${routelistc[@]}"; do
+		echo "Routetest: ${routelistdesc[$i]} $i ($(date +%T))" | writelog 1
+		if ping -qc1 -w5 "$i" > /dev/null 2>&1; then
+			drawm "Running route test..." "$green"
+			
+			if [[ ${routelistport[$i]} == "auto" || ${routelistport[$i]} == "null" || -z ${routelistport[$i]} ]]; then port=""
+			else port="-P ${routelistport[$i]}"; fi
+			# shellcheck disable=SC2086
+			mtr -wbc "$mtrpings" -I "$net_device" $port "$i" > "$routefile" &
+			routepid="$!"
+			
+			ttime=$((mtrpings+5))
+			tcount=1; pcount=1; dtext=""
+			
+			printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
+			printf "${bold}${yellow}<%02d:%02d>${reset}" $(((ttime/60)%60)) $((ttime%60))
+			while kill -0 "$routepid" >/dev/null 2>&1; do
+				prc=$(echo "scale=2; $pcount / ($ttime * 5) * 100" | bc | cut -d . -f 1)
+				if [[ $pcount -gt $((ttime*5)) ]]; then ax_anim 1; prc=100; dtext=" $animout "; tcount=$((tcount-1)); fi
+				printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
+				if [[ $tcount -eq 5 ]]; then
+					secs=$((ttime-(pcount/5)))
+					printf "${bold}${yellow}<%02d:%02d>${reset}" $((secs/60%60)) $((secs%60))
+					tcount=0
+				fi
+				sleep 0.2
+				tcount=$((tcount+1)); pcount=$((pcount+1))
+			done
+
+			echo -en "\r"; tput el
+
+			if broken; then break; fi
+			writelog 1 "$(tail -n+2 <$routefile)\n"
+
+			#drawm
+		else
+			echo "ERROR: Host not reachable!" | writelog 1
+			#drawm
+		fi
+		done
+		writelog 1 " "
+	if broken; then tput el; tput el1; writelog 1 "\nWARNING: Route tests aborted!\n"; fi
+	testing=0
+}
+
+tcount() { #? Run timer count and write to shared memory, meant to be run in background
+	local rsec lsec="$1"
+	echo "$lsec" > "$secfile"
+	local secbkp=$((lsec + 1))
+	while [[ $lsec -gt 0 ]]; do
+		rsec=$(date +%s)
+		if [[ $idle == "true" ]] && [[ $(./getIdle) -lt 1 ]]; then lsec=$secbkp; fi
+		while [[ $rsec -eq $(date +%s) ]]; do sleep 0.25; done
+		lsec=$((lsec - 1))
+		echo "$lsec" > "$secfile"
+	done
+}
+
+test_type_checker() { #? Check current type of test being run by speedtest
+		speedstring=$(tail -n1 < $speedfile)
+		stype=$(echo "$speedstring" | jq -r '.type')
+		if broken; then stype="broken"; fi
+		if [[ $stype == "log" ]]; then slowerror=1; return; fi
+		if ! kill -0 "$speedpid" >/dev/null 2>&1; then stype="ended"; fi
 }
 
 testspeed() { #? Using official Ookla speedtest client
@@ -607,7 +1018,7 @@ testspeed() { #? Using official Ookla speedtest client
 
 		stype=""; speedstring=""; true > "$speedfile"
 
-		$ookla_speedtest -s "$tl" -p yes -f json -I "$net_device" &>"$speedfile" &         #? <---------------- @note speedtest start
+		$ookla_speedtest -s "$tl" -p yes -f json -I "$net_device" &>"$speedfile" &         #? <----------------  speedtest start
 		speedpid="$!"
 
 		x=1
@@ -615,7 +1026,7 @@ testspeed() { #? Using official Ookla speedtest client
 			test_type_checker
 			if [[ $stype == "ping" ]]; then server_ping=$(echo "$speedstring" | jq '.ping.latency'); server_ping=${server_ping%.*}; fi
 			if [[ $x -eq 10 ]]; then
-				anim 1
+				ax_anim 1
 				if [[ $mode == "full" ]]; then printf "\r${bold}%-12s${reset}%-12s%-8s${bold}%16s${reset}" "     " "" "  " "$(progress 0 "Init $animout")    "
 				elif [[ $mode == "down" ]]; then printf "\r${bold}%5s%-4s%14s\t${reset}" "$down_speed " "$unit" "$(progress 0 "Init $animout")"
 				fi
@@ -648,7 +1059,7 @@ testspeed() { #? Using official Ookla speedtest client
 			elapsedt=$(echo "scale=2; $elapsed + $elapsed2" | bc 2> /dev/null)
 			up_progress=$(echo "$speedstring" | jq '.upload.progress'); up_progress=$(echo "$up_progress*100" | bc -l 2> /dev/null)
 			up_progress=${up_progress%.*}; up_progress=$(((up_progress/2)+50))
-			if [[ $up_progress -eq 100 ]]; then anim 1; up_progresst=" $animout "; cs="${bold}${green}"; ce="${white}"; cb=""; else up_progresst=""; cs=""; ce=""; cb="${bold}"; fi
+			if [[ $up_progress -eq 100 ]]; then ax_anim 1; up_progresst=" $animout "; cs="${bold}${green}"; ce="${white}"; cb=""; else up_progresst=""; cs=""; ce=""; cb="${bold}"; fi
 			printf "\r%-12s$cb%-12s${reset}%-8s${bold}%-16s${reset}$cb%-5s${reset}" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$up_progresst" "$cs" "$ce")    " " $elapsedt  "
 			sleep 0.1
 			test_type_checker
@@ -747,84 +1158,32 @@ testspeed() { #? Using official Ookla speedtest client
 	testing=0
 }
 
+traperr() {
+	if [[ ${BASH_LINENO[0]} =~ 1154|1151|1152 ]] || [[ "${BASH_LINENO[0]}" == "$err" ]]; then return; fi
+	local erri len
+	err="${BASH_LINENO[0]}"
+	trace_array+=("$err"); len=${#trace_array[@]}; trace_msg="${bold}${red}"
+	if [[ len -ge 10 ]]; then for((erri=(len-10);erri<=len;erri++)); do
+		trace_msg="$trace_msg${trace_array[$erri]} "
+	done; else trace_msg="$trace_msg${trace_array[$erri]} "; fi
+	trace_msg="$trace_msg${reset}"
+	tput sc; tput cup 0 55; echo -en "$trace_msg"; tput rc
+	return
+	#echo -e "$trace_msg"
+	#drawm
+}
 
-
-routetest() { #? Test routes with mtr
-	if [[ $mtr == "false" ]] || broken; then return; fi
-	testing=1
-	unset 'routelistc[@]'
-	local i ttime tcount pcount prc secs dtext port
-
-	if [[ -n ${routelistb[0]} ]]; then	routelistc+=("${routelistb[@]}"); fi
-	if [[ -n ${routelista[0]} ]]; then routelistc+=("${routelista[@]}"); fi
-	if [[ -z ${routelistc[0]} ]]; then testing=0; return; fi
-
-	for i in "${routelistc[@]}"; do
-		echo "Routetest: ${routelistdesc[$i]} $i ($(date +%T))" | writelog 1
-		if ping -qc1 -w5 "$i" > /dev/null 2>&1; then
-			drawm "Running route test..." "$green"
-			
-			if [[ ${routelistport[$i]} == "auto" || ${routelistport[$i]} == "null" || -z ${routelistport[$i]} ]]; then port=""
-			else port="-P ${routelistport[$i]}"; fi
-			# shellcheck disable=SC2086
-			mtr -wbc "$mtrpings" -I "$net_device" $port "$i" > "$routefile" &
-			routepid="$!"
-			
-			ttime=$((mtrpings+5))
-			tcount=1; pcount=1; dtext=""
-			
-			printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
-			printf "${bold}${yellow}<%02d:%02d>${reset}" $(((ttime/60)%60)) $((ttime%60))
-			while kill -0 "$routepid" >/dev/null 2>&1; do
-				prc=$(echo "scale=2; $pcount / ($ttime * 5) * 100" | bc | cut -d . -f 1)
-				if [[ $pcount -gt $((ttime*5)) ]]; then anim 1; prc=100; dtext=" $animout "; tcount=$((tcount-1)); fi
-				printf "\r%s${bold}%s${reset}%s" "Running mtr  " "$(progress "$prc" "$dtext" "${green}")" "  Time left: "
-				if [[ $tcount -eq 5 ]]; then
-					secs=$((ttime-(pcount/5)))
-					printf "${bold}${yellow}<%02d:%02d>${reset}" $((((ttime-(pcount/5))/60)%60)) $(((ttime-(pcount/5))%60))
-					tcount=0
-				fi
-				sleep 0.2
-				tcount=$((tcount+1)); pcount=$((pcount+1))
+waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
+			local text=$2
+			local i spaces=""
+			while kill -0 "$1" >/dev/null 2>&1; do
+				for (( i=0; i<${#chars}; i++ )); do
+					sleep 0.2
+					if broken; then return; fi
+					echo -en "${bold}${white}$text ${red}${chars:$i:1} ${reset}" "\r"
+				done
 			done
 
-			echo -en "\r"; tput el
-
-			if broken; then break; fi
-			writelog 1 "$(tail -n+2 <$routefile)\n"
-
-			#drawm
-		else
-			echo "ERROR: Host not reachable!" | writelog 1
-			#drawm
-		fi
-		done
-		writelog 1 " "
-	if broken; then tput el; tput el1; writelog 1 "\nWARNING: Route tests aborted!\n"; fi
-	testing=0
-}
-
-monitor() { #? Check if display is on with xset
-		xset q | grep -q "Monitor is On" && echo on || echo off
-}
-
-logrotate() { #? Rename logfile, compress and create new if size is over $logsize
-	if [[ -n $logname ]]; then
-		logfile="$logname"
-	else
-		logfile="log/spdtest.log"
-		if [[ $loglevel == 0 ]]; then return; fi
-		if [[ ! -d log ]]; then mkdir log; fi
-		touch $logfile
-		logsize=$(du $logfile | tr -s '\t' ' ' | cut -d' ' -f1)
-		if [[ $logsize -gt $maxlogsize ]]; then
-			ts=$(date +%y-%m-%d-T:%H:%M)
-			mv $logfile "log/spdtest.$ts.log"
-			touch $logfile
-			# shellcheck disable=SC2154
-			if [[ -n $logcompress ]]; then $logcompress "log/spdtest.$ts.log"; fi
-		fi
-	fi
 }
 
 writelog() { #? Write to logfile, buffer and colorise terminal output with grc
@@ -840,371 +1199,7 @@ writelog() { #? Write to logfile, buffer and colorise terminal output with grc
 	if [[ $1 -le 8 && $testonly != "true" && $loglevel -ne 103 ]]; then buffer add "$input"; fi
 }
 
-buffline() { #? Get current buffer from scroll position and window height, cut off text wider than window width
-	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat
-}
-
-
-buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
-	if [[ -z $1 && $max_buffer -le buffsize ]]; then return 1
-	elif [[ -z $1 && $max_buffer -gt $buffsize ]]; then return 0
-	elif [[ $max_buffer -le $buffsize ]]; then return; fi
-
-	local buffout scrtext y x
-	bufflen=$(wc -l <"$bufferfile")
-
-	if [[ $1 == "add" && -n $2 ]]; then
-		local addlen addline buffer
-		scrolled=0
-		addline="$2"
-		addlen=$(echo -en "$addline" | wc -l)
-		if [[ $addlen -ge $max_buffer ]]; then echo -e "$(echo -e "$addline" | tail -n"$max_buffer")\n" > "$bufferfile"
-		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n$(((max_buffer-addlen)-(max_buffer/10))) <"$bufferfile")\n$addline"; echo -e "$buffer" > "$bufferfile"
-		else echo -e "${buffer}${addline}" >> "$bufferfile"
-		fi
-		bufflen=$(wc -l <"$bufferfile")
-		drawscroll
-		return
-
-	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
-	scrolled=$((scrolled+1))
-	tput cup $buffpos 0
-	buffout=$(buffline)
-	tput ed; echo -e "$buffout"
-
-	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then
-	scrolled=$((scrolled-1))
-	buffout=$(buffline)
-	tput sc; tput cup $buffpos 0; tput ed; tput sc
-	echo -e "$buffout"
-	
-	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
-	scrolled=$((scrolled+buffsize))
-	if [[ $scrolled -gt $((bufflen-(buffsize+2))) ]]; then scrolled=$((bufflen-(buffsize+2))); fi
-	tput cup $buffpos 0
-	buffout=$(buffline)
-	tput ed; echo -e "$buffout"
-	
-	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then
-	scrolled=$((scrolled-buffsize))
-	if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
-	buffout=$(buffline)
-	tput cup $buffpos 0; tput ed
-	echo -e "$buffout"
-
-	elif [[ $1 == "redraw" ]]; then
-		scrolled=${2:-$scrolled}
-		buffout=$(buffline)
-		tput cup $buffpos 0; tput ed
-		echo -e "$buffout"
-		if [[ $testing -eq 1 ]]; then echo; fi
-
-	elif [[ $1 == "clear" ]]; then
-		true > "$bufferfile"
-		scrolled=0
-		tput cup $buffpos 0; tput ed
-	fi
-
-	drawscroll
-
-	sleep 0.001
-}
-
-drawscroll() { #? Draw scrollbar and scroll direction arrow
-	tput sc
-	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↕]"
-	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↓]"
-	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="[↑]"
-	else return; fi
-
-	tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"
-
-	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-(buffsize+2))) ]]; then 
-		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(((buffsize-y)+(buffpos+2)))
-		tput cup "$y" $((width-1)); echo -en "${reverse}░${reset}"
-	fi
-	tput rc
-}
-
-menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: toggle toggle_keep
-	if [[ -z $1 && $menu_status -ne 0 ]]; then return 0
-	elif [[ -z $1 ]]; then return 1; fi
-
-	if [[ $1 == "toggle" && $menu_status -ne 2 ]]; then
-		if [[ $menu_status -eq 0 ]]; then menu_status=1
-		elif [[ $menu_status -eq 1 ]]; then menu_status=0; fi
-	elif [[ $1 == "toggle_keep" ]]; then
-		if [[ $menu_status -eq 0 ]]; then menu_status=2
-		elif [[ $menu_status -ge 1 ]]; then menu_status=0; fi
-	fi
-	redraw calc
-	if [[ $menu_status -eq 0 ]]; then buffer redraw; fi
-	drawm
-}
-
-gen_menu() { #? Generate main menu and adapt for window width
-	if [[ $paused == "true" ]]; then ovs="${green}On${white}"; else ovs="${red}Off${white}"; fi
-	if [[ $idle == "true" ]]; then idl="${green}On${white}"; else idl="${red}Off${white}"; fi
-
-	# main_menu="[Timer:][${underline}${green}HMS${reset}${bold}+][${underline}${red}hms${reset}${bold}-][S${underline}${yellow}a${reset}${bold}ve][${underline}${blue}R${reset}${bold}eset][${underline}${magenta}I${reset}${bold}dle $idl][${underline}${yellow}P${reset}${bold}ause $ovs] [${underline}${green}T${reset}${bold}est] [${underline}${cyan}F${reset}${bold}orce test] [${underline}${magenta}U${reset}${bold}pdate servers] [${underline}${yellow}C${reset}${bold}lear screen]"
-	menu_array=(
-	"${bold}[Timer:]"
-	"[${underline}${green}HMS${reset}${bold}+]"
-	"[${underline}${red}hms${reset}${bold}-]"
-	"[S${underline}${yellow}a${reset}${bold}ve]"
-	"[${underline}${blue}R${reset}${bold}eset]"
-	"[${underline}${magenta}I${reset}${bold}dle ${idl}]"
-	"[${underline}${yellow}P${reset}${bold}ause ${ovs}] "
-	"[${underline}${green}T${reset}${bold}est] "
-	"[${underline}${cyan}F${reset}${bold}orce test] "
-	"[${underline}${magenta}U${reset}${bold}pdate servers] "
-	"[${underline}${yellow}C${reset}${bold}lear buffer]"
-	)
-	main_menu=$(printf %s "${menu_array[@]}" $'\n')
-	menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
-	if [[ $main_menu_len -ne ${#menuconv} ]]; then main_menu_len=${#menuconv}; redraw calc; fi
-}
-
-drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37> <sleep time>
-	local curline tlength mline
-	if [[ $testonly == "true" ]]; then return; fi
-	tput sc
-	if [[ $trace_errors == "true" ]]; then tput cup 0 55; echo -en "$trace_msg"; fi
-	tput cup 0 0; tput el; tput cup 0 $(((width / 2)-(${#funcname} / 2)))
-	echo -en "${bold}[$funcname]"
-	tput cup 0 0
-	echo -en "[${underline}${green}M${reset}${bold}enu] [H${underline}${yellow}e${reset}${bold}lp] [${bold}${underline}${red}Q${reset}${bold}uit]"
-	if [[ -n $lastspeed ]]; then
-		echo -en " [Last: $lastspeed $unit]"
-	fi
-	if [[ $detects -ge 1 && $width -ge 100 ]]; then
-		echo -en " [Slow detects: $detects]"
-	fi
-	logt="[Log:][${underline}${magenta}V${reset}${bold}iew][${logfile##log/}]"
-	logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
-	tput cup 0 $((width-${#logtl}))
-	echo -e "$logt"
-	if menu; then
-		tput cup 1 0; tput el
-		echo -en "$main_menu"; tput el
-	fi
-	tput cup $titleypos 0
-	printf "${bold}%0$(tput cols)d${reset}" 0 | tr '0' '='
-	if [[ -n $1 ]]; then 
-		tput cup "$titleypos" $(((width / 2)-(${#1} / 2)))
-		drawm_ltitle="$1"; drawm_lcolor="$2"
-		echo -en "${bold}${2:-$white}[${white}$1${2:-$white}]${reset}"
-		sleep "${3:-0}"
-	else
-		drawm_ltitle=""
-		drawm_lcolor=""
-	fi
-	if [[ -n $scroll_symbol ]]; then tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"; fi
-	tput rc
-	# drawscroll
-}
-
-tcount() { #? Run timer count and write to shared memory, meant to be run in background
-	local rsec lsec="$1"
-	echo "$lsec" > "$secfile"
-	local secbkp=$((lsec + 1))
-	while [[ $lsec -gt 0 ]]; do
-		rsec=$(date +%s)
-		if [[ $idle == "true" ]] && [[ $(./getIdle) -lt 1 ]]; then lsec=$secbkp; fi
-		while [[ $rsec -eq $(date +%s) ]]; do sleep 0.25; done
-		lsec=$((lsec - 1))
-		echo "$lsec" > "$secfile"
-	done
-}
-
-printhelp() { #? Prints help information in UI
-	echo ""
-	echo -e "Key:              Descripton:                           Key:              Description:"
-	echo -e "q                 Quit                                  e                 Show help information"
-	echo -e "c                 Clear screen                          v                 View current logfile with less"
-	echo -e "H                 Add 1 hour to timer                   h                 Remove 1 hour from timer"
-	echo -e "M                 Add 1 minute to timer                 m                 Remove 1 minute from timer"
-	echo -e "S                 Add 1 second to timer                 s                 Remove 1 second from timer"
-	echo -e "a                 Save wait timer                       r                 Reset wait timer"
-	echo -e "i                 Reset timer on X Server activity      p                 Pause timer"
-	echo -e "t                 Test if speed is slow                 f                 Run full tests without slow check"
-	echo -e "u                 Update serverlist\n"
-	}
-
-getservers() { #? Gets servers from speedtest-cli and optionally saves to file
-	unset 'testlista[@]'
-	unset 'testlistdesc[@]'
-	unset 'routelista[@]'
-	unset 'routelistadesc[@]'
-	local IFS=$'\n'
-
-	if [[ $quiet_start = "true" && $loglevel -ge 3 ]]; then bkploglevel=$loglevel; loglevel=103
-	elif [[ $quiet_start = "true" && $loglevel -lt 3 ]]; then bkploglevel=$loglevel; loglevel=1000; fi
-
-	if [[ -e $servercfg && $servercfg != "/dev/null" && $updateservers = 0 ]]; then
-		source "$servercfg"
-		writelog 3 "\nUsing servers from $servercfg"
-		local num=1
-		for tl in "${testlista[@]}"; do
-			writelog 3 "$num. ${testlistdesc["$tl"]}"
-			num=$((num+1))
-		done
-	else
-		echo "#? Automatically generated server list, servers won't be refreshed at start if this file exists" >> "$servercfg"
-		$speedtest_cli --list  > $tmpout &
-		waiting $! "Fetching servers"; tput el
-		speedlist=$(head -$((numservers+1)) "$tmpout" | sed 1d)
-		writelog 3 "Using servers:         "
-		local num=1
-		for line in $speedlist; do
-			servnum=${line:0:5}
-			servnum=${servnum%)}
-			servnum=${servnum# }
-			testlista+=("$servnum")
-			servlen=$((${#line} - 6))
-			servdesc=${line:(-servlen)}
-			servdesc=${servdesc# }
-			testlistdesc["$servnum"]="$servdesc"
-			echo -e "testlista+=(\"$servnum\");\t\ttestlistdesc[\"$servnum\"]=\"$servdesc\"" >> "$servercfg"
-			writelog 3 "$num. $servdesc"
-			num=$((num+1))
-		done
-	fi
-	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
-	numslowservers=${numslowservers:-$((num-1))}
-	writelog 3 "\n"
-	if [[ -e route.cfg.sh && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
-		# shellcheck disable=SC1091
-		source route.cfg.sh
-		writelog 3 "Hosts in route.cfg.sh:"
-		
-		for i in "${routelista[@]}"; do
-			writelog 3 "(${routelistdesc["$i"]}): $i"
-		done
-		writelog 3 "\n"
-	fi
-
-	if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
-}
-
-inputwait() { #? Timer and input loop
-	gen_menu
-	drawm
-
-	local IFS=:
-	# shellcheck disable=SC2048
-	# shellcheck disable=SC2086
-	set -- $*
-	if [[ -n $waitsaved && $idle != "true" ]]; then
-		secs=$waitsaved
-	elif [[ -n $idlesaved && $idle == "true" ]]; then
-		secs=$idlesaved
-	else
-		secs=$(( ${1#0} * 3600 + ${2#0} * 60 + ${3#0} ))
-	fi
-	stsecs=$secs
-	if [[ $paused = "false" ]]; then
-		tcount $secs &
-		secpid="$!"
-	fi
-	unset IFS
-
-
-	while [[ $secs -gt 0 ]]; do
-		tput sc; tput cup $titleypos $(((width / 2)-4))
-		if [[ $secs -le 10 ]]; then
-			printf "${bold}[%02d:%02d:${red}%02d${reset}" $((secs/3600)) $(((secs/60)%60)) $((secs%60))
-		else
-			printf "${bold}[%02d:%02d:%02d]${reset}" $((secs/3600)) $(((secs/60)%60)) $((secs%60))
-		fi
-		tput rc
-		
-		read -srd '' -t 0.0001 -n 10000 >/dev/null 2>&1
-		# shellcheck disable=SC2162
-		read -srn 1 -t 0.9999 keyp
-		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp ; fi
-		case "$keyp" in
-			'[A') buffer "up" ;;
-			'[B') buffer "down" ;;
-			'[5~') buffer "pageup" ;;
-			'[6~') buffer "pagedown" ;;
-			p|P)
-				if [[ $displaypause == "true" && $paused == "true" ]]; then monitorOvr=1
-				elif [[ $displaypause == "true" && $paused == "false" ]] ; then monitorOvr=0; fi
-				pausetoggled=1
-				;;
-			t|T) break ;;
-			i|I)
-				if [[ $idle == "true" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="false"; break
-				elif [[ $idle == "false" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="true"; break
-				fi
-				if [[ $idle == "true" ]]; then idle="false"; else idle="true"; fi
-				secs=$stsecs; updatesec=1; gen_menu; drawm
-				;;
-			H) secs=$(( secs + 3600 )); updatesec=1;;
-			h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
-			#M) secs=$(( secs + 60 )); updatesec=1 ;;
-			#m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
-			m) if menu; then menu toggle_keep; else menu toggle; fi ;;
-			M) menu toggle_keep ;;
-			S) secs=$(( secs + 1 )); updatesec=1 ;;
-			s) if [[ $secs -gt 1 ]]; then secs=$(( secs - 1 )); updatesec=1 ; fi ;;
-			a|A)
-				if [[ -n $idletimer ]] && [[ $idle == "true" ]]; then idlesaved=$secs
-				else waitsaved=$secs; fi
-				updatesec=1
-				drawm "Timer saved!" "$green" 2; drawm
-				;;
-			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
-			f|F) forcetest=1; break ;;
-			v|V)
-				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat | less -rXx1; redraw full
-				 else drawm "Log empty!" "$red" 2; drawm
-				 fi
-				;;
-			e|E) printhelp ;;
-			c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
-				 else buffer "clear"
-				 fi ;;
-			u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
-			ö) echo "displaypause=$displaypause monitor=$(monitor) paused=$paused monitorOvr=$monitorOvr pausetoggled=$pausetoggled" ;;
-			q) ctrl_c ;;
-		esac
-		if [[ $displaypause == "true" &&  $(monitor) == "on" && $paused == "false" && $monitorOvr == 0 ]] || [[ $paused == "false" && $pausetoggled == 1 ]] ; then
-			paused="true"
-			pausetoggled=0
-			kill "$secpid" >/dev/null 2>&1
-			gen_menu
-			drawm
-		elif [[ $displaypause == "true" && $(monitor) == "off" && $paused == "true" ]] || [[ $paused == "true" && $pausetoggled == 1 ]]; then
-			paused="false"
-			if [[ $pausetoggled == 0 ]]; then monitorOvr=0; fi
-			pausetoggled=0
-			tcount $secs &
-			secpid="$!"
-			gen_menu
-			drawm
-		fi
-		if [[ $updatesec == 1 && $idledone == 0 && $paused == "true" ]]; then
-			updatesec=0;
-		elif [[ $updatesec == 1 && $idledone == 0 && $paused == "false" ]]; then
-			kill "$secpid" >/dev/null 2>&1
-			tcount $secs &
-			secpid="$!"
-			updatesec=0
-		elif [[ $paused == "false" ]]; then
-			oldsecs=$secs
-			secs=$(<"$secfile")
-		fi
-		if [[ $secs -gt $oldsecs && -n $idletimer && $idle == "true" && $idledone == 1 && $idlebreak == 0 && $paused == "false" ]]; then idlebreak=1; idledone=0; break; fi
-	done
-	if menu; then menu toggle; fi
-	if [[ $scrolled -gt 0 ]]; then buffer "redraw" 0; fi
-	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idlebreak == 0 ]]; then idledone=1; fi
-	if kill -0 "$secpid" >/dev/null 2>&1; then kill $secpid >/dev/null 2>&1; fi
-}
-
-debug1() { #* Remove
+x_debug1() { #* Remove
 	drawm
 	startup=0
 	loglevel=0
@@ -1268,7 +1263,9 @@ debug1() { #* Remove
 	ctrl_c
 }
 
-#?> End functions --------------------------------------------------------------------------------------------------------------------> @audit Pre Main
+#?> End functions -------------------------------------------------------------------------------------------------------------------->
+
+z__pre_main() { echo -n; }
 
 command -v mtr >/dev/null 2>&1 || mtr="false"
 
@@ -1325,12 +1322,12 @@ trap traperr ERR
 fi
 
 if [[ $buffer_save == "true" && -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
-if [[ $debug == "true" ]]; then debug1; fi #* Remove
+if [[ $debug == "true" ]]; then x_debug1; fi #* Remove
 
 #writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
 
 getservers
-# debug1
+
 if [[ $displaypause == "true" && $(monitor) == "on" ]]; then paused="true"
 elif [[ $displaypause == "true" && $(monitor) == "off" ]]; then paused="false"
 fi
@@ -1347,7 +1344,7 @@ startup=0
 
 
 #? Start infinite loop ------------------------------------------------------------------------------------------------------------------>
-main_loop() {
+z_main_loop() {
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idledone == 0 && $startupdetect == 0 ]]; then
 		inputwait "$idletimer"
 	elif [[ $startupdetect == 0 ]]; then
@@ -1397,7 +1394,7 @@ main_loop() {
 }
 
 while true; do
-	main_loop
+	z_main_loop
 	idlebreak=0
 	precheck_status=""
 	broken=0
@@ -1405,4 +1402,5 @@ while true; do
 	slowerror=0
 done
 
+zz_end() { echo -n; }
 #? End infinite loop --------------------------------------------------------------------------------------------------------------------> @audit Main loop end
