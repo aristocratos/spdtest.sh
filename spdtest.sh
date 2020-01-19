@@ -118,6 +118,15 @@ menuypos=1
 main_menu=""
 main_menu_len=0
 menu_status=0
+menu_array=(
+	"Timer.2.green"
+	"Idle.1.magenta"
+	"Pause.1.yellow"
+	"Test.1.green"
+	"Force test.1.cyan"
+	"Update servers.1.magenta"
+	"Clear buffer.1.yellow"
+	) #? Menu format "Text".<underline position>."color"
 width=$(tput cols)
 height=$(tput lines)
 precheck_status=""
@@ -334,7 +343,7 @@ net_status="$(</sys/class/net/"$net_device"/operstate)"
 
 #? Start functions ------------------------------------------------------------------------------------------------------------------>
 
-ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints every "x" number of times
+ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints if "x" equals counter
 			if [[ $animx -eq $1 ]]; then
 				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
 				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
@@ -368,30 +377,30 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		return
 
 	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
-	scrolled=$((scrolled+1))
-	tput cup $buffpos 0
-	buffout=$(buffline)
-	tput ed; echo -e "$buffout"
+		scrolled=$((scrolled+1))
+		tput cup $buffpos 0
+		buffout=$(buffline)
+		tput ed; echo -e "$buffout"
 
 	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then
-	scrolled=$((scrolled-1))
-	buffout=$(buffline)
-	tput sc; tput cup $buffpos 0; tput ed; tput sc
-	echo -e "$buffout"
+		scrolled=$((scrolled-1))
+		buffout=$(buffline)
+		tput cup $buffpos 0; tput ed
+		echo -e "$buffout"
 	
 	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then
-	scrolled=$((scrolled+buffsize))
-	if [[ $scrolled -gt $((bufflen-(buffsize+2))) ]]; then scrolled=$((bufflen-(buffsize+2))); fi
-	tput cup $buffpos 0
-	buffout=$(buffline)
-	tput ed; echo -e "$buffout"
+		scrolled=$((scrolled+buffsize))
+		if [[ $scrolled -gt $((bufflen-(buffsize+2))) ]]; then scrolled=$((bufflen-(buffsize+2))); fi
+		tput cup $buffpos 0
+		buffout=$(buffline)
+		tput ed; echo -e "$buffout"
 	
 	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then
-	scrolled=$((scrolled-buffsize))
-	if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
-	buffout=$(buffline)
-	tput cup $buffpos 0; tput ed
-	echo -e "$buffout"
+		scrolled=$((scrolled-buffsize))
+		if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
+		buffout=$(buffline)
+		tput cup $buffpos 0; tput ed
+		echo -e "$buffout"
 
 	elif [[ $1 == "redraw" ]]; then
 		scrolled=${2:-$scrolled}
@@ -439,6 +448,7 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 		rm $secfile >/dev/null 2>&1
 		rm $speedfile >/dev/null 2>&1
 		rm $routefile >/dev/null 2>&1
+		rm $tmpout >/dev/null 2>&1
 		if [[ $buffer_save == "true" && -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
 		rm $bufferfile >/dev/null 2>&1
 		if [[ -n $precheck_ssh ]] && ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then ssh -S "$ssh_socket" -O exit "$precheck_ssh" >/dev/null 2>&1; fi
@@ -508,25 +518,47 @@ drawscroll() { #? Draw scrollbar and scroll direction arrow
 }
 
 gen_menu() { #? Generate main menu and adapt for window width
-	if [[ $paused == "true" ]]; then ovs="${green}On${white}"; else ovs="${red}Off${white}"; fi
-	if [[ $idle == "true" ]]; then idl="${green}On${white}"; else idl="${red}Off${white}"; fi
+	local i menuconv underpos color mend
+	if [[ $paused == "true" ]]; then paustate="${green}On${white}"; else paustate="${red}Off${white}"; fi
+	if [[ $idle == "true" ]]; then idlstate="${green}On${white}"; else idlstate="${red}Off${white}"; fi
 
 	# main_menu="[Timer:][${underline}${green}HMS${reset}${bold}+][${underline}${red}hms${reset}${bold}-][S${underline}${yellow}a${reset}${bold}ve][${underline}${blue}R${reset}${bold}eset][${underline}${magenta}I${reset}${bold}dle $idl][${underline}${yellow}P${reset}${bold}ause $ovs] [${underline}${green}T${reset}${bold}est] [${underline}${cyan}F${reset}${bold}orce test] [${underline}${magenta}U${reset}${bold}pdate servers] [${underline}${yellow}C${reset}${bold}lear screen]"
-	menu_array=(
-	"${bold}[Timer:]"
-	"[${underline}${green}HMS${reset}${bold}+]"
-	"[${underline}${red}hms${reset}${bold}-]"
-	"[S${underline}${yellow}a${reset}${bold}ve]"
-	"[${underline}${blue}R${reset}${bold}eset]"
-	"[${underline}${magenta}I${reset}${bold}dle ${idl}]"
-	"[${underline}${yellow}P${reset}${bold}ause ${ovs}] "
-	"[${underline}${green}T${reset}${bold}est] "
-	"[${underline}${cyan}F${reset}${bold}orce test] "
-	"[${underline}${magenta}U${reset}${bold}pdate servers] "
-	"[${underline}${yellow}C${reset}${bold}lear buffer]"
-	)
-	main_menu=$(printf %s "${menu_array[@]}" $'\n')
-	menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
+	# menu_array=(
+	# "Timer.2.green"
+	# "Idle.1.magenta"
+	# "Pause.1.yellow"
+	# "Test.1.green"
+	# "Force test.1.cyan"
+	# "Update servers.1.magenta"
+	# "Clear buffer.1.yellow"
+	# )
+	# omenu_array=(
+	# "${bold}[Timer:]"
+	# "[${underline}${green}HMS${reset}${bold}+]"
+	# "[${underline}${red}hms${reset}${bold}-]"
+	# "[S${underline}${yellow}a${reset}${bold}ve]"
+	# "[${underline}${blue}R${reset}${bold}eset]"
+	# "[${underline}${magenta}I${reset}${bold}dle ${idl}]"
+	# "[${underline}${yellow}P${reset}${bold}ause ${ovs}] "
+	# "[${underline}${green}T${reset}${bold}est] "
+	# "[${underline}${cyan}F${reset}${bold}orce test] "
+	# "[${underline}${magenta}U${reset}${bold}pdate servers] "
+	# "[${underline}${yellow}C${reset}${bold}lear buffer]"
+	# )
+	#menuconvl=$(printf %s "${menu_array[@]}")
+	main_menu="${bold}"; menuconv=0
+	for i in "${menu_array[@]}"; do
+		color=${i##*.*.}; i=${i%.*}
+		underpos=$((${i##*.}-1)); i=${i%.*}
+		if [[ $i == "Pause" ]]; then i="$i $paustate"; elif [[ $i == "Idle" ]]; then i="$i $idlstate"; fi
+		menuconv=$((menuconv+${#i}+3))
+		if [[ $underpos -gt 0 ]]; then i="${i:0:$((underpos))}${underline}${!color}${i:$underpos:1}${reset}${bold}${i:$((underpos+1))}"
+		else i="${underline}${!color}${i:0:1}${reset}${bold}${i:$((underpos+1))}"; fi
+		main_menu="${main_menu}[${i}] "
+	done
+
+	#main_menu=$(printf %s "${menu_array[@]}" $'\n')
+	#menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
 	if [[ $main_menu_len -ne ${#menuconv} ]]; then main_menu_len=${#menuconv}; redraw calc; fi
 }
 
@@ -577,7 +609,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 		$speedtest_cli --list  > $tmpout &
 		waiting $! "Fetching servers"; tput el
 		speedlist=$(head -$((numservers+1)) "$tmpout" | sed 1d)
-		rm $tmpout >/dev/null 2>&1
+		true > "$tmpout"
 		writelog 3 "Using servers:         "
 		local num=1
 		for line in $speedlist; do
@@ -1294,14 +1326,15 @@ if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true"
 	writelog 2 "Logging to: $logfile\n"
 	for i in $testnum; do
 		testspeed "full"
-		if broken; then break; fi
+		if broken; then exit 1; fi
 		routetest
-		if broken; then break; fi
+		if broken; then exit 1; fi
 	done
-	kill "$speedpid" >/dev/null 2>&1
-	kill "$routepid" >/dev/null 2>&1
+	if kill -0 "$routepid" >/dev/null 2>&1; then kill "$routepid" >/dev/null 2>&1; fi
+	if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
 	rm $speedfile >/dev/null 2>&1
 	rm $routefile >/dev/null 2>&1
+	rm $tmpout >/dev/null 2>&1
 	exit 0
 fi
 
@@ -1344,7 +1377,7 @@ startup=0
 
 
 
-#? Start infinite loop ------------------------------------------------------------------------------------------------------------------>
+#? Main loop function ------------------------------------------------------------------------------------------------------------------>
 z_main_loop() {
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idledone == 0 && $startupdetect == 0 ]]; then
 		inputwait "$idletimer"
@@ -1394,6 +1427,7 @@ z_main_loop() {
 	
 }
 
+#? Start infinite loop ------------------------------------------------------------------------------------------------------------------>
 while true; do
 	z_main_loop
 	idlebreak=0
@@ -1402,6 +1436,5 @@ while true; do
 	startupdetect=0
 	slowerror=0
 done
-
+ctrl_c
 zz_end() { echo -n; }
-#? End infinite loop --------------------------------------------------------------------------------------------------------------------> @audit Main loop end
