@@ -425,7 +425,9 @@ buffline() { #? Get current buffer from scroll position and window height, cut o
 }
 
 contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
-    local i n=$# value=${!n}
+    local i n value
+	n=$#
+	value=${!n}
     for ((i=1;i < $#;i++)) {
         if [[ "${!i}" == "${value}" ]]; then
             return 0
