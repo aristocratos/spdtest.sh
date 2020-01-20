@@ -109,24 +109,41 @@ buffsize=0
 buffpos=0
 buffpid=""
 trace_msg=""
-drawm_ltitle=""
-drawm_lcolor=""
 scroll_symbol=""
+drawm_ltitle="" 
+drawm_lcolor=""
 declare -a trace_array
 err=""
 menuypos=1
 main_menu=""
 main_menu_len=0
 menu_status=0
+timer_menu=0
+#? Menu format "Text".<underline position>."color"
 menu_array=(
-	"Timer.2.green"
+	"Quit.1.red"
+	"Menu.1.green"
+	"Help.1.yellow"
+	"Timer.4.green"
 	"Idle.1.magenta"
 	"Pause.1.yellow"
 	"Test.1.green"
 	"Force test.1.cyan"
 	"Update servers.1.magenta"
 	"Clear buffer.1.yellow"
-	) #? Menu format "Text".<underline position>."color"
+	"View log.1.cyan"
+	)
+timer_array=(
+	"← Back.3.yellow"
+	"Add Hour.5.green"
+	"Sub hour.5.red"
+	"Add Minute.5.green"
+	"Sub minute.5.red"
+	"Add Second.5.green"
+	"Sub second.5.red"
+	"Save.2.blue"
+	"Reset.1.cyan"
+	)
 width=$(tput cols)
 height=$(tput lines)
 precheck_status=""
@@ -147,7 +164,7 @@ if [[ $main_menu_start == "shown" ]]; then menu_status=2; fi
 #? Colors
 reset="\e[0m"
 bold="\e[1m"
-underline="\e[4m"
+ul="\e[4m"
 blink="\e[5m"
 reverse="\e[7m"
 dark="\e[2m"
@@ -161,6 +178,12 @@ blue="\e[34m"
 magenta="\e[35m"
 cyan="\e[36m"
 white="\e[37m"
+
+bgr="${reset}${dark}├${reset}${bold}"
+bgl="${reset}${dark}┤${reset}${bold}"
+bgls="${reset}${dark}─┤${reset}${bold}"
+bgs="${reset}${dark}─${reset}${bold}"
+
 
 #? End variables -------------------------------------------------------------------------------------------------------------------->
 
@@ -356,7 +379,7 @@ broken() {
 }
 
 buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
-	if [[ -z $1 && $max_buffer -le buffsize ]]; then return 1
+	if [[ -z $1 && $max_buffer -le $buffsize ]]; then return 1
 	elif [[ -z $1 && $max_buffer -gt $buffsize ]]; then return 0
 	elif [[ $max_buffer -le $buffsize ]]; then return; fi
 
@@ -464,53 +487,66 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 	fi
 }
 
-drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color 30-37> <sleep time>
-	local curline tlength mline
+drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sleep time>
+	local curline tlength mline i il
 	if [[ $testonly == "true" ]]; then return; fi
 	tput sc
 	if [[ $trace_errors == "true" ]]; then tput cup 0 55; echo -en "$trace_msg"; fi
 	# tput cup 0 0; tput el; tput cup 0 $(( (width / 2)-(${#funcname} / 2) ))
 	# echo -en "${bold}[$funcname]"
-	tput cup 0 0; tput el
-	echo -en "[${underline}${green}M${reset}${bold}enu] [${underline}${yellow}H${reset}${bold}elp] [${bold}${underline}${red}Q${reset}${bold}uit]"
-	if [[ -n $lastspeed ]]; then
-		echo -en " [Last: $lastspeed $unit]"
-	fi
-	if [[ $detects -ge 1 && $width -ge 100 ]]; then
-		echo -en " [Slow detects: $detects]"
-	fi
-	logt="[Log:][${underline}${magenta}V${reset}${bold}iew][${logfile##log/}]"
-	logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
-	tput cup 0 $((width-${#logtl}))
-	echo -e "$logt"
+	# tput cup 0 0; tput el
+	# echo -en "[${ul}${green}M${reset}${bold}enu] [${ul}${yellow}H${reset}${bold}elp] [${bold}${ul}${red}Q${reset}${bold}uit]"
+	# if [[ -n $lastspeed ]]; then
+	# 	echo -en " [Last: $lastspeed $unit]"
+	# fi
+	
+	# logt="[Log:][${ul}${magenta}V${reset}${bold}iew][${logfile##log/}]"
+	# logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
+	# tput cup 0 $((width-${#logtl}))
+	# echo -e "$logt"
+	for((i=0;i<n;i++)); do
+		echo "$i"
+	done
+	
+
+	
+	#printf "${bold}${dark}%0$(tput cols)d" 0 | tr '0' '≡'
+	
+	echo -en "${dark}"
+	for ((il=0;il<=titleypos;il++)); do
+		tput cup $il 0
+		for ((i=0;i<width;i++)) ; do echo -n "─"; done
+	done
+	echo -en "${reset}"
+	tput cup 0 0
 	if menu; then
-		tput cup 1 0; tput el
-		echo -en "$main_menu"; tput el
-	fi
-	tput cup $titleypos 0
-	printf "${bold}%0$(tput cols)d${reset}" 0 | tr '0' '='
-	if [[ -n $1 ]]; then 
-		tput cup "$titleypos" $(( (width / 2)-(${#1} / 2) ))
-		drawm_ltitle="$1"; drawm_lcolor="$2"
-		echo -en "${bold}${2:-$white}[${white}$1${2:-$white}]${reset}"
-		sleep "${3:-0}"
+		echo -en "$main_menu"
+		if [[ $detects -ge 1 ]]; then tput cup "$titleypos" 1; echo -en "[! $detects]"; fi
 	else
-		drawm_ltitle=""
-		drawm_lcolor=""
+		echo -en "${bold}\e[1C$bgl${ul}${green}M${reset}${bold}$bgr$bgl${ul}${yellow}H${reset}${bold}$bgr$bgl${ul}${red}Q${reset}${bold}$bgr\e[1C"
+		if [[ $detects -ge 1 ]]; then echo -en "\e[1C${bgl}! $detects${bgr}"; fi
 	fi
-	if [[ -n $scroll_symbol ]]; then tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"; fi
+
+	if [[ -n $1 ]]; then
+		drawm_ltitle="$1"; drawm_lcolor="$2"
+		tput cup "$titleypos" $(( (width / 2)-(${#1} / 2) ))
+		echo -en "${reset}${2:-$dark}┤${reset}${bold}${white}${1}${reset}${2:-$dark}├${reset}"
+		sleep "${3:-0}"
+	fi
+
+	if [[ -n $scroll_symbol ]]; then tput cup $titleypos $((width-4)); echo -en "${dark}┤${reset}$scroll_symbol${dark}├${reset}"; fi
 	tput rc
 	# drawscroll
 }
 
 drawscroll() { #? Draw scrollbar and scroll direction arrow
 	tput sc
-	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↕]"
-	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="[↓]"
-	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="[↑]"
+	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="↕"
+	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="↓"
+	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="↑"
 	else return; fi
 
-	tput cup $titleypos $((width-4)); echo -en "${reset}$scroll_symbol"
+	tput cup $titleypos $((width-4)); echo -en "${dark}┤${reset}$scroll_symbol${dark}├${reset}"
 
 	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-(buffsize+2))) ]]; then 
 		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(((buffsize-y)+(buffpos+2)))
@@ -520,50 +556,50 @@ drawscroll() { #? Draw scrollbar and scroll direction arrow
 }
 
 gen_menu() { #? Generate main menu and adapt for window width
-	local i menuconv underpos color mend nline nlinex
-	if [[ $paused == "true" ]]; then paustate="${green}On${white}"; else paustate="${red}Off${white}"; fi
-	if [[ $idle == "true" ]]; then idlstate="${green}On${white}"; else idlstate="${red}Off${white}"; fi
+	local i menuconv underpos color mend nline nlinex tmp_array no_color darken
+	if [[ $paused == "true" ]]; then paustate="${yellow}On"; else paustate="${dark}Off"; fi
+	if [[ $idle == "true" ]]; then idlstate="${magenta}On"; else idlstate="${dark}Off"; fi
 
-	# main_menu="[Timer:][${underline}${green}HMS${reset}${bold}+][${underline}${red}hms${reset}${bold}-][S${underline}${yellow}a${reset}${bold}ve][${underline}${blue}R${reset}${bold}eset][${underline}${magenta}I${reset}${bold}dle $idl][${underline}${yellow}P${reset}${bold}ause $ovs] [${underline}${green}T${reset}${bold}est] [${underline}${cyan}F${reset}${bold}orce test] [${underline}${magenta}U${reset}${bold}pdate servers] [${underline}${yellow}C${reset}${bold}lear screen]"
-	# menu_array=(
-	# "Timer.2.green"
-	# "Idle.1.magenta"
-	# "Pause.1.yellow"
-	# "Test.1.green"
-	# "Force test.1.cyan"
-	# "Update servers.1.magenta"
-	# "Clear buffer.1.yellow"
-	# )
-	# omenu_array=(
-	# "${bold}[Timer:]"
-	# "[${underline}${green}HMS${reset}${bold}+]"
-	# "[${underline}${red}hms${reset}${bold}-]"
-	# "[S${underline}${yellow}a${reset}${bold}ve]"
-	# "[${underline}${blue}R${reset}${bold}eset]"
-	# "[${underline}${magenta}I${reset}${bold}dle ${idl}]"
-	# "[${underline}${yellow}P${reset}${bold}ause ${ovs}] "
-	# "[${underline}${green}T${reset}${bold}est] "
-	# "[${underline}${cyan}F${reset}${bold}orce test] "
-	# "[${underline}${magenta}U${reset}${bold}pdate servers] "
-	# "[${underline}${yellow}C${reset}${bold}lear buffer]"
-	# )
-	#menuconvl=$(printf %s "${menu_array[@]}")
-	main_menu="${bold}"; menuconv=0; nlinex=1
-	for i in "${menu_array[@]}"; do
-		color=${i##*.*.}; i=${i%.*}
-		underpos=$((${i##*.}-1)); i=${i%.*}
-		if [[ $i == "Pause" && $paused == "true" ]] || [[ $i == "Idle" && $idle == "true" ]]; then menuconv=$((menuconv+3))
-		elif [[ $i == "Pause" && $paused != "true" ]] || [[ $i == "Idle" && $idle != "true" ]]; then menuconv=$((menuconv+4)); fi
-		menuconv=$((menuconv+${#i}+3)); if [[ $menuconv -ge $((width*nlinex)) ]]; then nline="\n "; nlinex=$((nlinex+1)); else nline=""; fi
-		if [[ $i == "Pause" ]]; then i="$i $paustate"; elif [[ $i == "Idle" ]]; then i="$i $idlstate"; fi
-		if [[ $underpos -gt 0 ]]; then i="${i:0:$((underpos))}${underline}${!color}${i:$underpos:1}${reset}${bold}${i:$((underpos+1))}"
-		else i="${underline}${!color}${i:0:1}${reset}${bold}${i:$((underpos+1))}"; fi
-		main_menu="${main_menu}${nline}[${i}] "
+	tmp_array=("${menu_array[@]}")
+
+	if [[ $1 == "Timer" && $timer_menu -eq 0 ]]; then timer_menu=1; no_color=1; tmp_array+=( "\n" "${timer_array[@]}" )
+	elif [[ $1 != "Timer" || timer_menu -eq 1 ]]; then timer_menu=0; fi
+
+	main_menu="\e[1C${bold}"; menuconv=1; nlinex=1
+
+	for i in "${tmp_array[@]}"; do
+		if [[ $i == "\n" ]]; then 
+			menuconv=$(( (width*nlinex) +1 )); nlinex=$((nlinex+1))
+			main_menu="${main_menu}\n\e[1C"
+			no_color=0
+		else	
+			if [[ $no_color -eq 1 ]] && [[ ! ${i%%.*} =~ $1|Quit ]]; then darken="$dark"; color="dark"
+
+			# TODO Testing=1 block color, drawm variable for remember state <--------------------------------------------------
+
+			else darken=""; color=${i##*.*.}; fi
+
+			i=${i%.*}
+			underpos=$((${i##*.}-1)); i=${i%.*}
+
+			if [[ $i == "Pause" && $paused == "true" ]] || [[ $i == "Idle" && $idle == "true" ]]; then menuconv=$((menuconv+3))
+			elif [[ $i == "Pause" && $paused != "true" ]] || [[ $i == "Idle" && $idle != "true" ]]; then menuconv=$((menuconv+4)); fi
+
+			menuconv=$((menuconv+${#i}+2)); if [[ $menuconv -ge $((width*nlinex)) ]]; then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 )); nlinex=$((nlinex+1)); else nline=""; fi
+
+			if [[ $i == "Pause" ]]; then i="$i ${!color}$paustate"; elif [[ $i == "Idle" ]]; then i="$i ${!color}$idlstate"; fi
+
+			if [[ $underpos -gt 0 ]]; then i="${i:0:$((underpos))}${ul}${!color}${i:$underpos:1}${reset}${darken}${bold}${i:$((underpos+1))}"
+			else i="${ul}${!color}${i:0:1}${reset}${darken}${bold}${i:$((underpos+1))}"; fi
+
+			main_menu="${main_menu}${nline}${bgl}${i}${bgr}"
+		fi
 	done
 
 	#main_menu=$(printf %s "${menu_array[@]}" $'\n')
 	#menuconv=$(echo -e "$main_menu" | sed 's/\x1b\[[0-9;]*m//g')
-	if [[ $main_menu_len -ne $menuconv ]]; then main_menu_len=$menuconv; redraw calc; fi
+	if [[ $main_menu_len -lt $menuconv ]]; then main_menu_len=$menuconv; redraw calc
+	elif [[ $main_menu_len -gt $menuconv ]]; then main_menu_len=$menuconv; redraw calc; buffer redraw; fi
 }
 
 getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"> <sample time in seconds> <["get"][value from previous get]>
@@ -650,7 +686,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 inputwait() { #? Timer and input loop
 	gen_menu
 	drawm
-
+	local bl
 	local IFS=:
 	# shellcheck disable=SC2048
 	# shellcheck disable=SC2086
@@ -672,10 +708,11 @@ inputwait() { #? Timer and input loop
 
 	while [[ $secs -gt 0 ]]; do
 		tput sc; tput cup $titleypos $(( (width / 2)-4 ))
+		if [[ $paused == "true" ]]; then bl="$dark"; else bl=""; fi
 		if [[ $secs -le 10 ]]; then
-			printf "${bold}[%02d:%02d:${red}%02d${reset}" $((secs/3600)) $(( (secs/60)%60 )) $((secs%60))
+			printf "${bgl}${bl}%02d:%02d:${red}%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
 		else
-			printf "${bold}[%02d:%02d:%02d]${reset}" $((secs/3600)) $(( (secs/60)%60 )) $((secs%60))
+			printf "${bgl}${bl}%02d:%02d:%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
 		fi
 		tput rc
 		
@@ -705,6 +742,7 @@ inputwait() { #? Timer and input loop
 			#h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
 			#M) secs=$(( secs + 60 )); updatesec=1 ;;
 			#m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
+			e) gen_menu "Timer"; if ! menu; then menu toggle; else drawm; fi ;;
 			m) if menu; then menu toggle_keep; else menu toggle; fi ;;
 			M) menu toggle_keep ;;
 			S) secs=$(( secs + 1 )); updatesec=1 ;;
@@ -916,9 +954,8 @@ random() { #? Random (number[s])(number[s] in array)(value[s] in array) generato
 redraw() { #? Redraw menu and reprint buffer if window is resized
 	width=$(tput cols)
 	height=$(tput lines)
-	if menu; then menuypos=$(((main_menu_len/width)+1)); else menuypos=0; fi
+	if menu; then menuypos=$((main_menu_len/width)); titleypos=$((menuypos+1)); else menuypos=0; titleypos=0; fi
 	#if [[ $width -lt 106 ]]; then menuypos=2; else menuypos=1; fi
-	titleypos=$((menuypos+1))
 	buffpos=$((titleypos+1))
 	buffsize=$((height-buffpos-1))
 	if [[ $1 == "calc" ]]; then return; fi
