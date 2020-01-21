@@ -375,9 +375,9 @@ ax_anim() { #? Gives a character for printing loading animation, arguments: <x> 
 			animx=$((animx+1))
 }
 
-broken() {
-	if [[ $broken -eq 1 ]]; then return 0; else return 1; fi
-}
+# broken() {
+# 	if [[ $broken -eq 1 ]]; then return 0; else return 1; fi
+# }
 
 buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
 	if [[ -z $1 && $max_buffer -le $buffsize ]]; then return 1
@@ -431,7 +431,7 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		buffout=$(buffline)
 		tput cup $buffpos 0; tput ed
 		echo -e "$buffout"
-		if [[ $testing -eq 1 ]]; then echo; fi
+		if now testing; then echo; fi
 
 	elif [[ $1 == "clear" ]]; then
 		true > "$bufferfile"
@@ -461,7 +461,7 @@ contains() { #? Function for checking if a value is contained in an array, argum
 }
 
 ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing otherwise cleanup and exit
-	if [[ $testing == 1 ]]; then
+	if now testing; then
 		if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
 		if kill -0 "$routepid" >/dev/null 2>&1; then kill "$routepid" >/dev/null 2>&1; fi
 		broken=1
@@ -488,37 +488,20 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 	fi
 }
 
-decide() { #? Set variable and variable was() state to new value, usage: was "variable name" "value"
-	if [[ -z $1 && -z $2 ]]; then return 1; fi
-	local var="$1"
-	local value="$2"
-	eval "$var"="$value"
-	was "$var" add
+reset() { #? Set variable was() state to current value, usage: reset "variable name"
+	if [[ -z $1 ]]; then return 1; fi
+	was "$1" add
 }
 
 drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sleep time>
 	local curline tlength mline i il
-	if [[ $testonly == "true" ]]; then return; fi
+	if now testonly; then return; fi
 	tput sc
-	if [[ $trace_errors == "true" ]]; then tput cup 0 55; echo -en "$trace_msg"; fi
-	# tput cup 0 0; tput el; tput cup 0 $(( (width / 2)-(${#funcname} / 2) ))
-	# echo -en "${bold}[$funcname]"
-	# tput cup 0 0; tput el
-	# echo -en "[${ul}${green}M${reset}${bold}enu] [${ul}${yellow}H${reset}${bold}elp] [${bold}${ul}${red}Q${reset}${bold}uit]"
-	# if [[ -n $lastspeed ]]; then
-	# 	echo -en " [Last: $lastspeed $unit]"
-	# fi
-	
-	# logt="[Log:][${ul}${magenta}V${reset}${bold}iew][${logfile##log/}]"
-	# logtl=$(echo -e "$logt" | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g")
-	# tput cup 0 $((width-${#logtl}))
-	# echo -e "$logt"
-	for((i=0;i<n;i++)); do
-		echo "$i"
-	done
-	
+	if now trace_errors; then tput cup 0 55; echo -en "$trace_msg"; fi
 
-	
+	if menu && ! was testing && now testing; then gen_menu darken
+	elif menu && was testing && ! now testing; then gen_menu
+	fi
 	#printf "${bold}${dark}%0$(tput cols)d" 0 | tr '0' '≡'
 	
 	echo -en "${dark}"
@@ -530,12 +513,15 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sle
 	tput cup 0 0
 	if menu; then
 		echo -en "$main_menu"
-		if [[ $detects -ge 1 ]]; then tput cup "$titleypos" 1; echo -en "[! $detects]"; fi
-	else
-		echo -en "${bold}\e[1C$bgl${ul}${green}M${reset}${bold}$bgr$bgl${ul}${yellow}H${reset}${bold}$bgr$bgl${ul}${red}Q${reset}${bold}$bgr\e[1C"
-		if [[ $detects -ge 1 ]]; then echo -en "\e[1C${bgl}! $detects${bgr}"; fi
+	elif ! now testing; then
+		echo -en "\e[1C$bgl${ul}${green}M${reset}$bgr$bgl${ul}${yellow}H${reset}$bgr$bgl${ul}${red}Q$bgr\e[1C"
 	fi
-
+	
+	tput cup "$titleypos" 0
+	if now testing; then echo -en "${bold}\e[1C$bgl${ul}${yellow}C${reset}${bold}trl+${ul}${yellow}C$bgr\e[1C"; fi
+	if [[ $detects -ge 1 ]]; then echo -en "\e[1C${bgl}! $detects${bgr}"; fi
+	
+	
 	if [[ -n $1 ]]; then
 		drawm_ltitle="$1"; drawm_lcolor="$2"
 		tput cup "$titleypos" $(( (width / 2)-(${#1} / 2) ))
@@ -565,7 +551,7 @@ drawscroll() { #? Draw scrollbar and scroll direction arrow
 }
 
 gen_menu() { #? Generate main menu and adapt for window width
-	local i menuconv underpos color mend nline nlinex tmp_array no_color darken
+	local i menuconv underpos color mend nline nlinex tmp_array no_color darken ult="$ul"
 	if [[ $paused == "true" ]]; then paustate="${yellow}On"; else paustate="${dark}Off"; fi
 	if [[ $idle == "true" ]]; then idlstate="${magenta}On"; else idlstate="${dark}Off"; fi
 
@@ -573,7 +559,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 
 	if [[ $1 == "Timer" && $timer_menu -eq 0 ]]; then timer_menu=1; no_color=1; tmp_array+=( "\n" "${timer_array[@]}" )
 	elif [[ $1 != "Timer" || timer_menu -eq 1 ]]; then timer_menu=0; fi
-
+	
 	main_menu="\e[1C${bold}"; menuconv=1; nlinex=1
 
 	for i in "${tmp_array[@]}"; do
@@ -582,7 +568,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 			main_menu="${main_menu}\n\e[1C"
 			no_color=0
 		else	
-			if [[ $no_color -eq 1 && ! ${i%%.*} =~ $1|Quit ]]; then darken="$dark"; color="dark"
+			if [[ $1 == "darken" ]] || [[ $no_color -eq 1 && ! ${i%%.*} =~ $1|Quit ]]; then darken="$dark"; color="dark"; ult=""
 
 			# TODO Testing=1 block color, drawm variable for remember state <--------------------------------------------------
 
@@ -598,8 +584,8 @@ gen_menu() { #? Generate main menu and adapt for window width
 
 			if [[ $i == "Pause" ]]; then i="$i ${!color}$paustate"; elif [[ $i == "Idle" ]]; then i="$i ${!color}$idlstate"; fi
 
-			if [[ $underpos -gt 0 ]]; then i="${i:0:$((underpos))}${ul}${!color}${i:$underpos:1}${reset}${darken}${bold}${i:$((underpos+1))}"
-			else i="${ul}${!color}${i:0:1}${reset}${darken}${bold}${i:$((underpos+1))}"; fi
+			if [[ $underpos -gt 0 ]]; then i="${darken}${i:0:$((underpos))}${ult}${!color}${i:$underpos:1}${reset}${darken}${bold}${i:$((underpos+1))}"
+			else i="${ult}${!color}${i:0:1}${reset}${darken}${bold}${i:$((underpos+1))}"; fi
 
 			main_menu="${main_menu}${nline}${bgl}${i}${bgr}"
 		fi
@@ -882,7 +868,7 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 		if [[ $i -eq $ib ]]; then ib=$((ib+10)); dspeed=$(getcspeed "down" $((i/10)) "$sndvald"); uspeed=$(getcspeed "up" $((i/10)) "$sndvalu"); fi
 		echo -en "Checking bandwidth usage: ${bold}$(progress "$prc") ${green}DOWN=${white}$dspeed $unit ${red}UP=${white}$uspeed $unit${reset}         \r"
 		sleep 0.1
-		if broken; then precheck_status="fail"; testing=0; tput el; tput el1; writelog 2 "\nWARNING: Precheck aborted!\n"; return; fi
+		if now broken; then precheck_status="fail"; testing=0; tput el; tput el1; writelog 2 "\nWARNING: Precheck aborted!\n"; return; fi
 	done
 	tput el
 	dspeed="$(getcspeed "down" $precheck_samplet "$sndvald")"
@@ -988,7 +974,7 @@ redraw() { #? Redraw menu and reprint buffer if window is resized
 }
 
 routetest() { #? Test routes with mtr
-	if [[ $mtr == "false" ]] || broken; then return; fi
+	if [[ $mtr == "false" ]] || now broken; then return; fi
 	testing=1
 	unset 'routelistc[@]'
 	local i ttime tcount pcount prc secs dtext port
@@ -1028,7 +1014,7 @@ routetest() { #? Test routes with mtr
 
 			echo -en "\r"; tput el
 
-			if broken; then break; fi
+			if now broken; then break; fi
 			writelog 1 "$(tail -n+2 <$routefile)\n"
 
 			#drawm
@@ -1038,7 +1024,7 @@ routetest() { #? Test routes with mtr
 		fi
 		done
 		writelog 1 " "
-	if broken; then tput el; tput el1; writelog 1 "\nWARNING: Route tests aborted!\n"; fi
+	if now broken; then tput el; tput el1; writelog 1 "\nWARNING: Route tests aborted!\n"; fi
 	testing=0
 }
 
@@ -1058,7 +1044,7 @@ tcount() { #? Run timer count and write to shared memory, meant to be run in bac
 test_type_checker() { #? Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
 		stype=$(echo "$speedstring" | jq -r '.type')
-		if broken; then stype="broken"; fi
+		if now broken; then stype="broken"; fi
 		if [[ $stype == "log" ]]; then slowerror=1; return; fi
 		if ! kill -0 "$speedpid" >/dev/null 2>&1; then stype="ended"; fi
 }
@@ -1162,7 +1148,7 @@ testspeed() { #? Using official Ookla speedtest client
 		done
 		
 		#? ------------------------------------Checks--------------------------------------------------------------
-		if broken; then break; fi
+		if now broken; then break; fi
 		wait $speedpid
 
 		if [[ $mode == "full" && $slowerror == 0 ]]; then
@@ -1248,8 +1234,8 @@ testspeed() { #? Using official Ookla speedtest client
 	done #? Test loop end ----------------------------------------------------------------------------------------------------------------------->
 	
 	if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
-	if broken && [[ $mode == "full" ]]; then tput el; tput el1; writelog 1 "\nWARNING: Full test aborted!\n"; 
-	elif broken && [[ $mode == "down" ]]; then tput el; tput el1; writelog 2 "\nWARNING: Slow test aborted!\n"; 
+	if now broken && [[ $mode == "full" ]]; then tput el; tput el1; writelog 1 "\nWARNING: Full test aborted!\n"; 
+	elif now broken && [[ $mode == "down" ]]; then tput el; tput el1; writelog 2 "\nWARNING: Slow test aborted!\n"; 
 	elif [[ $mode == "full" ]]; then writelog 1 " "; fi
 	testing=0
 }
@@ -1275,7 +1261,7 @@ waiting() { #? Show animation and text while waiting for background job, argumen
 			while kill -0 "$1" >/dev/null 2>&1; do
 				for (( i=0; i<${#chars}; i++ )); do
 					sleep 0.2
-					if broken; then return; fi
+					if now broken; then return; fi
 					echo -en "${bold}${white}$text ${red}${chars:$i:1} ${reset}" "\r"
 				done
 			done
@@ -1401,9 +1387,9 @@ if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true"
 	writelog 2 "Logging to: $logfile\n"
 	for i in $testnum; do
 		testspeed "full"
-		if broken; then exit 1; fi
+		if now broken; then exit 1; fi
 		routetest
-		if broken; then exit 1; fi
+		if now broken; then exit 1; fi
 	done
 	if kill -0 "$routepid" >/dev/null 2>&1; then kill "$routepid" >/dev/null 2>&1; fi
 	if kill -0 "$speedpid" >/dev/null 2>&1; then kill "$speedpid" >/dev/null 2>&1; fi
@@ -1475,26 +1461,26 @@ z_main_loop() {
 			#drawm
 		fi
 
-		if ! broken && [[ $forcetest == 1 ]]; then
+		if now broken; then return; fi
+
+		if [[ $forcetest == 1 ]]; then
 			if [[ $loglevel -lt 4 ]]; then bkploglevel=$loglevel; loglevel=0; fi
 			writelog 9 "\n INFO: Running forced test!"
 			testspeed "full"; #drawm
 			routetest; #drawm
 			if [[ -n $bkploglevel && $bkploglevel -lt 4 ]]; then loglevel=$bkploglevel; fi
 			forcetest=0
-		elif ! broken && [[ $lastspeed -le $slowspeed && $slowerror == 0 ]]; then
+		elif [[ $lastspeed -le $slowspeed && $slowerror == 0 ]]; then
 			testspeed "full"; #drawm
 			routetest; #drawm
 			detects=$((detects + 1))
 			if [[ -n $slowwait ]]; then waitbkp=$waittime; waittime=$slowwait; fi
-		else
-			if ! broken && [[ $slowgoing == 1 ]]; then
-				if [[ -n $slowwait ]]; then waittime=$waitbkp; fi
-				if [[ $slowerror == 0 ]]; then
-					slowgoing=0
-					writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
-					#drawm
-				fi
+		elif [[ $slowgoing == 1 ]]; then
+			if [[ -n $slowwait ]]; then waittime=$waitbkp; fi
+			if [[ $slowerror == 0 ]]; then
+				slowgoing=0
+				writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
+				#drawm
 			fi
 		fi
 	fi
@@ -1508,6 +1494,8 @@ while true; do
 	idlebreak=0
 	precheck_status=""
 	broken=0
+	reset broken
+	reset testing
 	startupdetect=0
 	slowerror=0
 done
