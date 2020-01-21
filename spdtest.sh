@@ -23,7 +23,6 @@ aa_TODOs() { echo -n;
 # TODO windows: help, options, route, timer   <----------------------
 
 }
-
 #?> Start variables ------------------------------------------------------------------------------------------------------------------>
 aa_variables() { echo -n; }
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
@@ -93,7 +92,6 @@ idlebreak=0
 broken=0
 updateservers=0
 times_tested=0
-monitorOvr=0
 pausetoggled=0
 slowerror=0
 stype=""
@@ -120,10 +118,10 @@ main_menu_len=0
 menu_status=0
 timer_menu=0
 #? Menu format "Text".<underline position>."color"
+# "Help.1.yellow"
 menu_array=(
 	"Quit.1.red"
-	"Menu.1.green"
-	"Help.1.yellow"
+	"Menu.1.yellow"
 	"Timer.4.green"
 	"Idle.1.magenta"
 	"Pause.1.yellow"
@@ -134,14 +132,14 @@ menu_array=(
 	"View log.1.cyan"
 	)
 timer_array=(
-	"← Back.3.yellow"
+	"← Exit.3.yellow"
 	"Add Hour.5.green"
-	"Sub hour.5.red"
+	"Rem hour.5.red"
 	"Add Minute.5.green"
-	"Sub minute.5.red"
+	"Rem minute.5.red"
 	"Add Second.5.green"
-	"Sub second.5.red"
-	"Save.2.blue"
+	"Rem second.5.red"
+	"Save.2.yellow"
 	"Reset.1.cyan"
 	)
 width=$(tput cols)
@@ -155,12 +153,13 @@ declare -a testlista; declare -A testlistdesc
 declare -a rndbkp
 declare -a errorlist
 declare -A was_list
+declare -A old_list
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
 if [[ $use_shm != "true" && $max_buffer -ne 0 ]]; then max_buffer=0; fi
 if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
 if [[ $max_buffer -gt 0 && $max_buffer -le $((height*2)) ]]; then max_buffer=$((height*2)); fi
-if [[ $main_menu_start == "shown" ]]; then menu_status=2; fi
+if [[ $main_menu_start == "shown" ]]; then menu_status=1; fi
 
 #? Colors
 reset="\e[0m"
@@ -494,7 +493,7 @@ reset() { #? Set variable was() state to current value, usage: reset "variable n
 }
 
 drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sleep time>
-	local curline tlength mline i il
+	local curline tlength mline i il da
 	if now testonly; then return; fi
 	tput sc
 	if now trace_errors; then tput cup 0 55; echo -en "$trace_msg"; fi
@@ -513,14 +512,15 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sle
 	tput cup 0 0
 	if menu; then
 		echo -en "$main_menu"
+		tput cup "$titleypos" 0
 	elif ! now testing; then
-		echo -en "\e[1C$bgl${ul}${green}M${reset}$bgr$bgl${ul}${yellow}H${reset}$bgr$bgl${ul}${red}Q$bgr\e[1C"
+		echo -en "\e[1C$bgl${ul}${red}Q${reset}$bgr$bgl${ul}${yellow}M$bgr\e[1C"
 	fi
 	
-	tput cup "$titleypos" 0
 	if now testing; then echo -en "${bold}\e[1C$bgl${ul}${yellow}C${reset}${bold}trl+${ul}${yellow}C$bgr\e[1C"; fi
-	if [[ $detects -ge 1 ]]; then echo -en "\e[1C${bgl}! $detects${bgr}"; fi
+	if [[ $detects -ge 1 ]]; then echo -en "\e[1C${bgl}${red}!${white}=$detects${bgr}"; fi
 	
+	if [[ -n $scroll_symbol ]]; then drawscroll_symbol; fi
 	
 	if [[ -n $1 ]]; then
 		drawm_ltitle="$1"; drawm_lcolor="$2"
@@ -528,26 +528,30 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sle
 		echo -en "${reset}${2:-$dark}┤${reset}${bold}${white}${1}${reset}${2:-$dark}├${reset}"
 		sleep "${3:-0}"
 	fi
-
-	if [[ -n $scroll_symbol ]]; then tput cup $titleypos $((width-4)); echo -en "${dark}┤${reset}$scroll_symbol${dark}├${reset}"; fi
 	tput rc
 	# drawscroll
 }
 
 drawscroll() { #? Draw scrollbar and scroll direction arrow
 	tput sc
-	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-(buffsize+2))) ]]; then scroll_symbol="↕"
-	elif [[ $scrolled -gt 0 && $scrolled -ge $((bufflen-(buffsize+2))) ]]; then scroll_symbol="↓"
+	if [[ $scrolled -gt 0 && $scrolled -lt $(( bufflen-(buffsize+2) )) ]]; then scroll_symbol="↕"
+	elif [[ $scrolled -gt 0 && $scrolled -ge $(( bufflen-(buffsize+2) )) ]]; then scroll_symbol="↓"
 	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="↑"
 	else return; fi
 
-	tput cup $titleypos $((width-4)); echo -en "${dark}┤${reset}$scroll_symbol${dark}├${reset}"
+	drawscroll_symbol
 
 	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-(buffsize+2))) ]]; then 
-		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(((buffsize-y)+(buffpos+2)))
-		tput cup "$y" $((width-1)); echo -en "${reverse}░${reset}"
+		y=$(echo "scale=2; $scrolled / ($bufflen-($buffsize+2)) * ($buffsize+2)" | bc); y=${y%.*}; y=$(( (buffsize-y)+(buffpos+2) ))
+		tput cup "$y" $((width-1)); echo -en "${bold}▒${reset}"
 	fi
 	tput rc
+}
+
+drawscroll_symbol() {
+	local da
+	if now testing; then da="$dark"; fi
+	tput cup $titleypos $((width-4)); echo -en "${dark}┤${reset}${da}$scroll_symbol${dark}├${reset}"
 }
 
 gen_menu() { #? Generate main menu and adapt for window width
@@ -557,8 +561,8 @@ gen_menu() { #? Generate main menu and adapt for window width
 
 	tmp_array=("${menu_array[@]}")
 
-	if [[ $1 == "Timer" && $timer_menu -eq 0 ]]; then timer_menu=1; no_color=1; tmp_array+=( "\n" "${timer_array[@]}" )
-	elif [[ $1 != "Timer" || timer_menu -eq 1 ]]; then timer_menu=0; fi
+	
+	if now timer_menu; then no_color=1; exp_menu="Timer"; tmp_array+=( "\n" "${timer_array[@]}" ); fi
 	
 	main_menu="\e[1C${bold}"; menuconv=1; nlinex=1
 
@@ -568,9 +572,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 			main_menu="${main_menu}\n\e[1C"
 			no_color=0
 		else	
-			if [[ $1 == "darken" ]] || [[ $no_color -eq 1 && ! ${i%%.*} =~ $1|Quit ]]; then darken="$dark"; color="dark"; ult=""
-
-			# TODO Testing=1 block color, drawm variable for remember state <--------------------------------------------------
+			if [[ $1 == "darken" ]] || [[ $no_color -eq 1 && ! ${i%%.*} == "Quit" ]]; then darken="$dark"; color="dark"; ult=""
 
 			else darken=""; color=${i##*.*.}; fi
 
@@ -703,7 +705,7 @@ inputwait() { #? Timer and input loop
 
 	while [[ $secs -gt 0 ]]; do
 		tput sc; tput cup $titleypos $(( (width / 2)-4 ))
-		if [[ $paused == "true" ]]; then bl="$dark"; else bl=""; fi
+		if [[ $paused == "true" ]] && ! now timer_menu; then bl="$dark"; else bl=""; fi
 		if [[ $secs -le 10 ]]; then
 			printf "${bgl}${bl}%02d:%02d:${red}%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
 		else
@@ -711,68 +713,79 @@ inputwait() { #? Timer and input loop
 		fi
 		tput rc
 		
-		read -srd '' -t 0.0001 -n 10000 >/dev/null 2>&1
+		read -srd '' -t 0.0001 -n 10000 || true
 		# shellcheck disable=SC2162
-		read -srn 1 -t 0.9999 keyp
-		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp ; fi
-		case "$keyp" in
+		read -srn 1 -t 0.9999 keyp || true
+		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp || true ; fi
+
+		case "$keyp" in #* Buffer and quit keys ------------------------------------
 			'[A') buffer "up" ;;
 			'[B') buffer "down" ;;
 			'[5~') buffer "pageup" ;;
 			'[6~') buffer "pagedown" ;;
-			p|P)
-				if [[ $displaypause == "true" && $paused == "true" ]]; then monitorOvr=1
-				elif [[ $displaypause == "true" && $paused == "false" ]] ; then monitorOvr=0; fi
-				pausetoggled=1
-				;;
-			t|T) break ;;
-			i|I)
-				if [[ $idle == "true" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="false"; break
-				elif [[ $idle == "false" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="true"; break
-				fi
-				if [[ $idle == "true" ]]; then idle="false"; else idle="true"; fi
-				secs=$stsecs; updatesec=1; gen_menu; drawm
-				;;
-			#H) secs=$(( secs + 3600 )); updatesec=1;;
-			#h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
-			#M) secs=$(( secs + 60 )); updatesec=1 ;;
-			#m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
-			e) gen_menu "Timer"; if ! menu; then menu toggle; else drawm; fi ;;
-			m) if menu; then menu toggle_keep; else menu toggle; fi ;;
-			M) menu toggle_keep ;;
-			S) secs=$(( secs + 1 )); updatesec=1 ;;
-			s) if [[ $secs -gt 1 ]]; then secs=$(( secs - 1 )); updatesec=1 ; fi ;;
-			a|A)
-				if [[ -n $idletimer ]] && [[ $idle == "true" ]]; then idlesaved=$secs
-				else waitsaved=$secs; fi
-				updatesec=1
-				drawm "Timer saved!" "$green" 2; drawm
-				;;
-			r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
-			f|F) forcetest=1; break ;;
-			v|V)
-				 if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat | less -rXx1; redraw full
-				 else drawm "Log empty!" "$red" 2; drawm
-				 fi
-				;;
-			H|h) printhelp ;;
-			c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
-				 else buffer "clear"
-				 fi ;;
-			u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
-			ö) echo "displaypause=$displaypause monitor=$(monitor) paused=$paused monitorOvr=$monitorOvr pausetoggled=$pausetoggled" ;;
-			q) ctrl_c ;;
+				q) ctrl_c ;;
 		esac
-		if [[ $displaypause == "true" &&  $(monitor) == "on" && $paused == "false" && $monitorOvr == 0 ]] || [[ $paused == "false" && $pausetoggled == 1 ]] ; then
+
+		if now timer_menu; then #* Timer menu keys ------------------------------------
+			case "$keyp" in
+				H) secs=$(( secs + 3600 )); updatesec=1;;
+				h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
+				M) secs=$(( secs + 60 )); updatesec=1 ;;
+				m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
+				S) secs=$(( secs + 1 )); updatesec=1 ;;
+				s) if [[ $secs -gt 1 ]]; then secs=$(( secs - 1 )); updatesec=1 ; fi ;;
+				a|A)
+					if [[ -n $idletimer ]] && [[ $idle == "true" ]]; then idlesaved=$secs
+					else waitsaved=$secs; fi
+					updatesec=1
+					drawm "Timer saved!" "$green" 2; drawm
+					;;
+				r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
+				e|E)
+					toggle timer_menu
+					if ! old pausetoggled same; then toggle pausetoggled; else gen_menu; fi
+					if ! old menu_status same; then menu toggle; else drawm; fi
+					 ;;
+			esac
+		
+		else #* Regular main menu keys -------------------------------------------------------
+			case "$keyp" in
+				p|P) toggle pausetoggled ;;
+				t|T) break ;;
+				i|I)
+					if [[ $idle == "true" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="false"; break
+					elif [[ $idle == "false" && -n $idletimer ]]; then idlebreak=1; idledone=0; idle="true"; break
+					fi
+					if [[ $idle == "true" ]]; then idle="false"; else idle="true"; fi
+					secs=$stsecs; updatesec=1; gen_menu; drawm
+					;;
+				e|E) 
+					toggle timer_menu
+					old pausetoggled save; old menu_status save
+					if ! now paused; then toggle pausetoggled; else gen_menu; fi
+					if ! menu; then menu toggle; else drawm; fi
+					;;
+				m|M) menu toggle ;;
+				f|F) forcetest=1; break ;;
+				v|V)
+					if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat | less -rXx1; redraw full
+					else drawm "Log empty!" "$red" 2; drawm
+					fi
+					;;
+				c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
+					else buffer "clear"
+					fi ;;
+				u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
+			esac
+		fi
+
+		if  (! now paused && now pausetoggled) || (! now paused && ! now pausetoggled  && now displaypause && [[ $(monitor) == "on" ]]); then
 			paused="true"
-			pausetoggled=0
 			kill "$secpid" >/dev/null 2>&1
 			gen_menu
 			drawm
-		elif [[ $displaypause == "true" && $(monitor) == "off" && $paused == "true" ]] || [[ $paused == "true" && $pausetoggled == 1 ]]; then
+		elif (now paused && ! now pausetoggled) || (now paused && ! now pausetoggled  && now displaypause && [[ $(monitor) == "off" ]]); then
 			paused="false"
-			if [[ $pausetoggled == 0 ]]; then monitorOvr=0; fi
-			pausetoggled=0
 			tcount $secs &
 			secpid="$!"
 			gen_menu
@@ -791,7 +804,6 @@ inputwait() { #? Timer and input loop
 		fi
 		if [[ $secs -gt $oldsecs && -n $idletimer && $idle == "true" && $idledone == 1 && $idlebreak == 0 && $paused == "false" ]]; then idlebreak=1; idledone=0; break; fi
 	done
-	if menu; then menu toggle; fi
 	if [[ $scrolled -gt 0 ]]; then buffer "redraw" 0; fi
 	if [[ -n $idletimer && $idle == "true" && $slowgoing == 0 && $idlebreak == 0 ]]; then idledone=1; fi
 	if kill -0 "$secpid" >/dev/null 2>&1; then kill $secpid >/dev/null 2>&1; fi
@@ -817,18 +829,12 @@ logrotate() { #? Rename logfile, compress and create new if size is over $logsiz
 }
 
 menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: toggle toggle_keep
-	if [[ -z $1 && $menu_status -ne 0 ]]; then return 0
+	if [[ -z $1 && $menu_status -eq 1 ]]; then return 0
 	elif [[ -z $1 ]]; then return 1; fi
 
-	if [[ $1 == "toggle" && $menu_status -ne 2 ]]; then
-		if [[ $menu_status -eq 0 ]]; then menu_status=1
-		elif [[ $menu_status -eq 1 ]]; then menu_status=0; fi
-	elif [[ $1 == "toggle_keep" ]]; then
-		if [[ $menu_status -eq 0 ]]; then menu_status=2
-		elif [[ $menu_status -ge 1 ]]; then menu_status=0; fi
-	fi
+	if [[ $1 == "toggle" ]]; then toggle menu_status; fi
 	redraw calc
-	if [[ $menu_status -eq 0 ]]; then buffer redraw; fi
+	if ! menu; then buffer redraw; fi
 	drawm
 }
 
@@ -839,10 +845,10 @@ myip() { curl -s ipinfo.io/ip; } #? Get public IP
 now() { #? Returns true or false for a variable, usage: now "variable name"
 	if [[ -z $1 ]]; then return; fi
 	local var="$1"
-	if [[ -z ${!var} || ${!var} -eq 0 || ${!var} =~ false|False|FALSE ]]; then
+	if [[ -z ${!var} || ${!var} =~ 0|false|False|FALSE ]]; then
 		if [[ -n ${!var} ]] && ! was "$var"; then was "$var" add; fi
 		return 1
-	elif [[ ${!var} -eq 1 || ${!var} =~ true|True|TRUE ]]; then
+	elif [[ ${!var} =~ 1|true|True|TRUE ]]; then
 		if ! was "$var"; then was "$var" add; fi
 		return 0
 	fi
@@ -1149,7 +1155,7 @@ testspeed() { #? Using official Ookla speedtest client
 		
 		#? ------------------------------------Checks--------------------------------------------------------------
 		if now broken; then break; fi
-		wait $speedpid
+		wait $speedpid || true
 
 		if [[ $mode == "full" && $slowerror == 0 ]]; then
 			sleep 0.1
@@ -1241,18 +1247,50 @@ testspeed() { #? Using official Ookla speedtest client
 }
 
 traperr() {
-	if [[ ${BASH_LINENO[0]} =~ 1154|1151|1152 ]] || [[ "${BASH_LINENO[0]}" == "$err" ]]; then return; fi
-	local erri len
-	err="${BASH_LINENO[0]}"
-	trace_array+=("$err"); len=${#trace_array[@]}; trace_msg="${bold}${red}"
-	if [[ len -ge 10 ]]; then for((erri=(len-10);erri<=len;erri++)); do
-		trace_msg="$trace_msg${trace_array[$erri]} "
-	done; else trace_msg="$trace_msg${trace_array[$erri]} "; fi
-	trace_msg="$trace_msg${reset}"
-	tput sc; tput cup 0 55; echo -en "$trace_msg"; tput rc
-	return
-	#echo -e "$trace_msg"
-	#drawm
+	local err="${BASH_LINENO[0]}"
+	#if [[ $err =~ 1154|1151|1152 ]]; then return; fi
+	#err="${BASH_LINENO[0]}"
+	if [[ -z ${trace_array[0]} ]]; then true > misc/errors; fi
+	#if ! contains "${trace_array[@]}" "$err"; then
+	trace_array+=("$err")
+	echo "$(date +%T) Error on line: ${BASH_LINENO[0]}" >> "misc/errors"
+	#fi
+}
+
+toggle() {
+	if [[ -z $1 || -z ${!1} ]]; then return; fi
+
+	if [[ ${!1} == "0" ]]; then 
+		eval "$1=1"
+		was "$var" add "0"
+	elif [[ ${!1} =~ false|False|FALSE ]]; then
+		eval "$1=true"
+		was "$var" add "false"
+	elif [[ ${!1} == "1" ]]; then
+		eval "$1=0"
+		was "$var" add "1"
+	elif [[ ${!1} =~ true|True|TRUE ]]; then
+		eval "$1=false"
+		was "$var" add "true"
+	fi
+}
+
+old() {
+	if [[ -z $1 ]]; then return; fi
+	local out var="$1"
+	if [[ $2 == "save" ]]; then old_list[$var]="${!var}"; return
+	elif [[ $2 == "print" ]]; then echo -n "${old_list[$var]}"
+	elif [[ $2 == "same" ]]; then
+		if [[ ${old_list[$var]} == "${!var}" ]]; then return 0
+		else return 1
+		fi
+	fi
+	
+	if [[ -z ${old_list[$var]} || ${old_list[$var]} =~ 0|false|False|FALSE ]]; then
+		return 1
+	elif [[ ${old_list[$var]} =~ 1|true|True|TRUE ]]; then
+		return 0
+	fi	
 }
 
 waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
@@ -1270,12 +1308,13 @@ waiting() { #? Show animation and text while waiting for background job, argumen
 
 was() { #? Returns or sets previous true or false state of a variable, usage: was "variable name" [add]
 	if [[ -z $1 ]]; then return; fi
-	local var="$1"
+	local out var="$1"
 	if [[ $2 == "add" ]]; then
-		was_list[$var]="${!var}"
-	elif [[ -z ${was_list[$var]} || ${was_list[$var]} -eq 0 || ${was_list[$var]} =~ false|False|FALSE ]]; then
+		out=${3:-${!var}}
+		was_list[$var]="$out"
+	elif [[ -z ${was_list[$var]} || ${was_list[$var]} =~ 0|false|False|FALSE ]]; then
 		return 1
-	elif [[ ${was_list[$var]} -eq 1 || ${was_list[$var]} =~ true|True|TRUE ]]; then
+	elif [[ ${was_list[$var]} =~ 1|true|True|TRUE ]]; then
 		return 0
 	fi
 }
