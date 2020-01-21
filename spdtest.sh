@@ -154,6 +154,7 @@ declare -A routelistdesc; declare -A routelistport
 declare -a testlista; declare -A testlistdesc
 declare -a rndbkp
 declare -a errorlist
+declare -A was_list
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
 if [[ $use_shm != "true" && $max_buffer -ne 0 ]]; then max_buffer=0; fi
@@ -487,6 +488,14 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 	fi
 }
 
+decide() { #? Set variable and variable was() state to new value, usage: was "variable name" "value"
+	if [[ -z $1 && -z $2 ]]; then return 1; fi
+	local var="$1"
+	local value="$2"
+	eval "$var"="$value"
+	was "$var" add
+}
+
 drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sleep time>
 	local curline tlength mline i il
 	if [[ $testonly == "true" ]]; then return; fi
@@ -573,7 +582,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 			main_menu="${main_menu}\n\e[1C"
 			no_color=0
 		else	
-			if [[ $no_color -eq 1 ]] && [[ ! ${i%%.*} =~ $1|Quit ]]; then darken="$dark"; color="dark"
+			if [[ $no_color -eq 1 && ! ${i%%.*} =~ $1|Quit ]]; then darken="$dark"; color="dark"
 
 			# TODO Testing=1 block color, drawm variable for remember state <--------------------------------------------------
 
@@ -840,6 +849,18 @@ menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: togg
 monitor() { xset q | grep -q "Monitor is On" && echo on || echo off; } #? Check if display is on with xset
 
 myip() { curl -s ipinfo.io/ip; } #? Get public IP
+
+now() { #? Returns true or false for a variable, usage: now "variable name"
+	if [[ -z $1 ]]; then return; fi
+	local var="$1"
+	if [[ -z ${!var} || ${!var} -eq 0 || ${!var} =~ false|False|FALSE ]]; then
+		if [[ -n ${!var} ]] && ! was "$var"; then was "$var" add; fi
+		return 1
+	elif [[ ${!var} -eq 1 || ${!var} =~ true|True|TRUE ]]; then
+		if ! was "$var"; then was "$var" add; fi
+		return 0
+	fi
+}
 
 precheck_speed() { #? Check current bandwidth usage before slowcheck
 	testing=1
@@ -1259,6 +1280,18 @@ waiting() { #? Show animation and text while waiting for background job, argumen
 				done
 			done
 
+}
+
+was() { #? Returns or sets previous true or false state of a variable, usage: was "variable name" [add]
+	if [[ -z $1 ]]; then return; fi
+	local var="$1"
+	if [[ $2 == "add" ]]; then
+		was_list[$var]="${!var}"
+	elif [[ -z ${was_list[$var]} || ${was_list[$var]} -eq 0 || ${was_list[$var]} =~ false|False|FALSE ]]; then
+		return 1
+	elif [[ ${was_list[$var]} -eq 1 || ${was_list[$var]} =~ true|True|TRUE ]]; then
+		return 0
+	fi
 }
 
 writelog() { #? Write to logfile, buffer and colorise terminal output with grc
