@@ -12,7 +12,6 @@ aa_TODOs() { echo -n;
 # TODO Fix argument parsing and error messages
 # TODO Change slowtest to multiple servers and compare results
 # TODO fix wrong keypress in inputwait, esc codes etc
-# TODO makefile to getIdle
 # TODO fix up README.md
 # TODO extern config and save to config?
 # TODO ssh controlmaster, server, client
@@ -44,7 +43,7 @@ precheck_ssh_user="admin" #* Username for ssh connection
 precheck_ssh_nd="auto"  #* Net device on remote machine to get speeds from, set to auto if unsure
 waittime="00:15:00"		#* Default wait timer between slow checks, format: "HH:MM:SS"
 slowwait="00:05:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
-idle="false"			#* If "true", resets timer if keyboard or mouse activity is detected in X Server, needs getIdle to work
+idle="false"			#* If "true", resets timer if keyboard or mouse activity is detected in XServer
 # idletimer="00:30:00"	#* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
 						#* any X Server activity resets back to idletimer, format: "HH:MM:SS"
 displaypause="false"	#* If "true" automatically pauses timer when display is on, unpauses when off, overrides idle="true" if set, needs xset to work
@@ -76,7 +75,7 @@ speedtest_cli="speedtest-cli/speedtest.py"		#* Path to unofficial speedtest-cli
 spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
 
 #! Variables below are for internal function, don't change unless you know what you are doing
-if [[ ! -w /dev/shm ]]; then echo "ERROR: Can't write to /dev/shm" ; fi
+if [[ ! -w /dev/shm ]]; then echo "ERROR: Can't write to /dev/shm"; exit 1 ; fi
 temp="/dev/shm"
 secfile="${temp}/spdtest-sec.$$"
 speedfile="${temp}/spdtest-speed.$$"
@@ -84,6 +83,7 @@ routefile="${temp}/spdtest-route.$$"
 tmpout="${temp}/spdtest-tmpout.$$"
 bufferfile="${temp}/spdtest-buffer.$$"
 grc_import="grc_import$$"
+if [[ -z $DISPLAY ]]; then declare -x DISPLAY=":0"; fi
 startup=1
 forcetest=0
 detects=0
@@ -822,6 +822,28 @@ getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"
 	echo $(((speed*unitop)>>20))
 }
 
+getIdle() { #? Returns current XServer idle time in seconds
+python3 - << EOF
+import ctypes, os
+class XScreenSaverInfo(ctypes.Structure):
+    _fields_ = [('window',      ctypes.c_ulong), ('state',       ctypes.c_int), ('kind',        ctypes.c_int), ('since',       ctypes.c_ulong), ('idle',        ctypes.c_ulong), ('event_mask',  ctypes.c_ulong)]
+xlib = ctypes.cdll.LoadLibrary( 'libX11.so')
+xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+xlib.XOpenDisplay.restype = ctypes.c_void_p
+xlib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+xlib.XDefaultRootWindow.restype = ctypes.c_uint32
+dpy = xlib.XOpenDisplay(None)
+root = xlib.XDefaultRootWindow(dpy)
+xss = ctypes.cdll.LoadLibrary( 'libXss.so')
+xss.XScreenSaverQueryInfo.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(XScreenSaverInfo)]
+xss.XScreenSaverQueryInfo.restype = ctypes.c_int
+xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
+xss_info = xss.XScreenSaverAllocInfo()
+xss.XScreenSaverQueryInfo( dpy, root, xss_info)
+print( "%d" %(xss_info.contents.idle / 1000) )
+EOF
+}
+
 getproc() { #? Get /proc/dev/net 
 	if [[ -n $precheck_ssh ]]; then
 		ssh -S "$ssh_socket" "$precheck_ssh" "grep $proc_nd /proc/net/dev"
@@ -1299,8 +1321,8 @@ tcount() { #? Run timer count and write to shared memory, meant to be run in bac
 	local secbkp=$((lsec + 1))
 	while [[ $lsec -gt 0 ]]; do
 		rsec=$(date +%s)
-		if [[ $idle == "true" ]] && [[ $(./getIdle) -lt 1 ]]; then lsec=$secbkp; fi
 		while [[ $rsec -eq $(date +%s) ]]; do sleep 0.25; done
+		if [[ $idle == "true" ]] && [[ $(getIdle) -lt 1 ]]; then lsec=$secbkp; fi
 		lsec=$((lsec - 1))
 		echo "$lsec" > "$secfile"
 	done
@@ -1687,8 +1709,6 @@ if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true"
 	bury "$speedfile" "$routefile" "$tmpout"
 	exit 0
 fi
-
-if [[ ! -x ./getIdle ]]; then idle="false"; fi
 
 deliver "$bufferfile" "$secfile"
 tput smcup; tput clear; tput civis; tput cup 3 0; stty -echo
