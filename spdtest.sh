@@ -5,6 +5,7 @@
 # shellcheck disable=SC2207 # read -a, mapfile warning
 # shellcheck disable=SC2119 # function warnings
 # shellcheck disable=SC2086 # double quoute warning
+# shellcheck disable=SC2120 # function argument warnings
 
 aa_TODOs() { echo -n;
 
@@ -69,20 +70,20 @@ paused="false"			#* If "true", the timer is paused at startup, ignored if displa
 startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
 testnum=1				#* Number of times to loop full tests in testonly mode
-use_shm="true"			#* Use /dev/shm shared memory for temp files, defaults to /tmp if /dev/shm isn't present
 
 ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
 speedtest_cli="speedtest-cli/speedtest.py"		#* Path to unofficial speedtest-cli
-export spdtest_grcconf="./grc/grc.conf"
+spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
 
 #! Variables below are for internal function, don't change unless you know what you are doing
-if [[ $use_shm == true && -d /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp"; max_buffer=0; fi
+if [[ ! -w /dev/shm ]]; then echo "ERROR: Can't write to /dev/shm" ; fi
+temp="/dev/shm"
 secfile="${temp}/spdtest-sec.$$"
 speedfile="${temp}/spdtest-speed.$$"
 routefile="${temp}/spdtest-route.$$"
 tmpout="${temp}/spdtest-tmpout.$$"
 bufferfile="${temp}/spdtest-buffer.$$"
-funcname=$(basename "$0"); funcname=${funcname::15}
+grc_import="grc_import$$"
 startup=1
 forcetest=0
 detects=0
@@ -158,7 +159,6 @@ declare -A was_list
 declare -A old_list
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
-if [[ $use_shm != "true" && $max_buffer -ne 0 ]]; then max_buffer=0; fi
 if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
 if [[ $max_buffer -gt 0 && $max_buffer -le $((height*2)) ]]; then max_buffer=$((height*2)); fi
 if [[ $main_menu_start == "shown" ]]; then menu_status=1; fi
@@ -191,18 +191,17 @@ bgs="${reset}${dark}─${reset}${bold}"
 
 command -v $ookla_speedtest >/dev/null 2>&1 || { echo "Error Ookla speedtest client not found"; exit 1; }
 command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli missing"; exit 1; }
-command -v grc/grcat >/dev/null 2>&1 || { echo "Error grc/grcat missing"; exit 1; }
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
 argumenterror() { #? Handles argument errors
-	echo "Error:"
+	echo -n "ERROR: "
 	case $1 in
-		general) echo -e "$2 tnot a valid option" ;;
+		general) echo -e "$2 not a valid option" ;;
 		server-config) echo "Can't find server config, use with flag -gs to create a new file" ;;
 		missing) echo -e "$2 missing argument" ;;
 		wrong) echo -e "$3 not a valid modifier for $2" ;;
 	esac
-	echo -e "$funcname -h, --help \tShows help information"
+	echo -e "$0 -h, --help \tShows help information"
 	exit 0
 }
 
@@ -401,53 +400,42 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		drawscroll
 		return
 
-	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then
-		scrolled=$((scrolled+1))
-		tput cup $buffpos 0
-		buffout=$(buffline)
-		tput ed; echo -e "$buffout"
+	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scrolled=$((scrolled+1))
 
-	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then
-		scrolled=$((scrolled-1))
-		buffout=$(buffline)
-		tput cup $buffpos 0; tput ed
-		echo -e "$buffout"
+	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then scrolled=$((scrolled-1))
 	
-	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then
-		scrolled=$((scrolled+buffsize))
+	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scrolled=$((scrolled+buffsize))
 		if [[ $scrolled -ge $((bufflen-buffsize-1)) ]]; then scrolled=$((bufflen-buffsize-1)); fi
-		tput cup $buffpos 0
-		buffout=$(buffline)
-		tput ed; echo -e "$buffout"
 	
-	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then
-		scrolled=$((scrolled-buffsize))
+	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then scrolled=$((scrolled-buffsize))
 		if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
-		buffout=$(buffline)
-		tput cup $buffpos 0; tput ed
-		echo -e "$buffout"
 
-	elif [[ $1 == "redraw" ]]; then
-		scrolled=${2:-$scrolled}
+	elif [[ $1 == "home" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scrolled=$((bufflen-buffsize-1))
+
+	elif [[ $1 == "end" && $scrolled -ne 0 ]]; then scrolled=0
+
+	elif [[ $1 == "redraw" ]]; then scrolled=${2:-$scrolled}
 		if [[ $scrolled -ge $((bufflen-buffsize-1)) ]]; then scrolled=$((bufflen-buffsize-1)); fi
-		buffout=$(buffline)
-		tput cup $buffpos 0; tput ed
-		echo -e "$buffout"
-		if now testing; then echo; fi
-
+		
 	elif [[ $1 == "clear" ]]; then
 		true > "$bufferfile"
 		scrolled=0
 		tput cup $buffpos 0; tput ed
+		drawscroll
+		return
 	fi
 
+	buffout="$(buffline)"
+	tput cup $buffpos 0; tput ed
+	echo -e "$buffout"
+	if now testing; then echo; fi
 	drawscroll
 
-	sleep 0.001
+	#sleep 0.001
 }
 
 buffline() { #? Get current buffer from scroll position and window height, cut off text wider than window width
-	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | grc/grcat
+	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | colorize
 }
 
 bury() { 
@@ -455,6 +443,217 @@ bury() {
 	for i in "$@"; do
 	rm "$i" >/dev/null 2>&1
 	done
+}
+
+colorize() {
+	declare input=${1:-$(</dev/stdin)}
+	eval declare -x "$grc_import"='$input'
+python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
+from __future__ import print_function
+
+import sys, os, string, re, signal, errno, io
+
+colours = {
+			'none'       :    "",
+			'default'    :    "\033[0m",
+			'bold'       :    "\033[1m",
+			'underline'  :    "\033[4m",
+			'blink'      :    "\033[5m",
+			'reverse'    :    "\033[7m",
+			'concealed'  :    "\033[8m",
+
+			'black'      :    "\033[30m", 
+			'red'        :    "\033[31m",
+			'green'      :    "\033[32m",
+			'yellow'     :    "\033[33m",
+			'blue'       :    "\033[34m",
+			'magenta'    :    "\033[35m",
+			'cyan'       :    "\033[36m",
+			'white'      :    "\033[37m",
+
+			'previous'   :    "prev",
+			'unchanged'  :    "unchanged",
+
+			'dark'         :    "\033[2m",
+			'italic'       :    "\033[3m",
+			'rapidblink'   :    "\033[6m",
+			'strikethrough':    "\033[9m",
+			}
+
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+def add2list(clist, m, patterncolour):
+	for group in range(0, len(m.groups()) +1):
+		if group < len(patterncolour):
+			clist.append((m.start(group), m.end(group), patterncolour[group]))
+		else:
+			clist.append((m.start(group), m.end(group), patterncolour[0]))
+
+def get_colour(x):
+	if x in colours:
+		return colours[x]
+	elif len(x)>=2 and x[0]=='"' and x[-1]=='"':
+		return eval(x)
+	else:
+		raise ValueError('Bad colour specified: '+x)
+
+# conffile = os.environ.get('spdtest_grcconf')
+conffile = "$spdtest_grcconf"
+
+if not conffile:
+	sys.exit(1)
+
+regexplist = []
+
+try:
+	f = open(conffile, "r")
+except IOError:
+	sys.stderr.write('Could not open grc config\n')
+	sys.exit(1)
+	
+is_last = 0
+split = str.split
+lower = str.lower
+letters = string.ascii_letters
+while not is_last:
+	ll = {'count':"more"}
+	while 1:
+		l = f.readline()
+		if l == "": 
+			is_last = 1
+			break
+		if l[0] == "#" or l[0] == '\012':
+			continue
+		if not l[0] in letters:
+			break
+		fields = split(l.rstrip('\r\n'), "=", 1)
+		if len(fields) != 2:
+			sys.stderr.write('Error in grc config\n')
+			sys.exit(1)
+		keyword, value = fields
+		keyword = lower(keyword)
+		if keyword in  ('colors', 'colour', 'color'):
+			keyword = 'colours'
+		if not keyword in ["regexp", "colours", "count", "command", "skip", "replace", "concat"]:
+			raise ValueError("Invalid keyword")
+		ll[keyword] = value
+	if 'colours' in ll:
+		colstrings = list(
+						[''.join([get_colour(x) for x in split(colgroup)]) for colgroup in split(ll['colours'], ',')]
+						)
+		ll['colours'] = colstrings
+
+	cs = ll['count']
+	if 'regexp' in ll:
+		ll['regexp'] = re.compile(ll['regexp']).search
+		regexplist.append(ll)
+
+prevcolour = colours['default']
+prevcount = "more"
+blockflag = 0
+
+inputvar = os.environ.get('$grc_import')
+inputstring = io.StringIO(inputvar)
+while 1:
+	line = inputstring.readline()
+	if line == "" :
+		break
+	if line[-1] in '\r\n':
+		line = line[:-1]
+	clist = []
+	skip = 0
+	for pattern in regexplist:
+		pos = 0
+		currcount = pattern['count']
+		while 1:
+			m = pattern['regexp'](line, pos)
+			if m:
+				if 'replace' in pattern:
+					line = re.sub(m.re, pattern['replace'], line)
+				if 'colours' in pattern:
+					if currcount == "block":
+						blockflag = 1
+						blockcolour = pattern['colours'][0]
+						currcount = "stop"
+						break
+					elif currcount == "unblock":
+						blockflag = 0
+						blockcolour = colours['default']
+						currcount = "stop"
+					add2list(clist, m, pattern['colours'])
+					if currcount == "previous":
+						currcount = prevcount
+					if currcount == "stop":
+						break
+					if currcount == "more":
+						prevcount = "more"
+						newpos = m.end(0)
+						if newpos == pos:
+							pos += 1
+						else:
+							pos = newpos
+					else:
+						prevcount = "once"
+						pos = len(line)
+				if 'concat' in pattern:
+					with open(pattern['concat'], 'a') as f :
+						f.write(line + '\n')
+					if 'colours' not in pattern:
+						break
+				if 'command' in pattern:
+					os.system(pattern['command'])
+					if 'colours' not in pattern:
+						break
+				if 'skip' in pattern:
+					skip = pattern['skip'] in ("yes", "1", "true")
+					if 'colours' not in pattern:
+						break
+			else: break
+		if m and currcount == "stop":
+			prevcount = "stop"
+			break
+	if len(clist) == 0:
+		prevcolour = colours['default']
+	first_char = 0
+	last_char = 0
+	length_line = len(line)
+	if blockflag == 0:
+		cline = (length_line+1)*[colours['default']]
+		for i in clist:
+			if i[2] == "prev":
+				cline[i[0]:i[1]] = [colours['default']+prevcolour]*(i[1]-i[0])
+			elif i[2] != "unchanged":
+				cline[i[0]:i[1]] = [colours['default']+i[2]]*(i[1]-i[0])
+			if i[0] == 0:
+				first_char = 1
+				if i[2] != "prev":
+					prevcolour = i[2]
+			if i[1] == length_line:
+				last_char = 1
+		if first_char == 0 or last_char == 0:
+			prevcolour = colours['default']
+	else:
+		cline = (length_line+1)*[blockcolour]
+	nline = ""
+	clineprev = ""
+	if not skip:
+		for i in range(len(line)):
+			if cline[i] == clineprev: 
+				nline = nline + line[i]
+			else:
+				nline = nline + cline[i] + line[i]
+				clineprev = cline[i]
+		nline = nline + colours['default']
+		try:
+			print(nline)
+		except IOError as e:
+			if e.errno == errno.EPIPE:
+				break
+			else:
+				raise
+EOF
+	grc_err="$?"
+	if [[ $grc_err -ne 0 ]]; then echo -e "$input"; fi
 }
 
 contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
@@ -718,6 +917,8 @@ inputwait() { #? Timer and input loop
 			'[B') buffer "down" ;;
 			'[5~') buffer "pageup" ;;
 			'[6~') buffer "pagedown" ;;
+			'[H') buffer "home" ;;
+			'[F') buffer "end" ;;
 				q) ctrl_c ;;
 		esac
 
@@ -763,7 +964,7 @@ inputwait() { #? Timer and input loop
 				m|M) menu toggle ;;
 				f|F) forcetest=1; break ;;
 				v|V)
-					if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | grc/grcat | less -rMXx1 +Gg; redraw full
+					if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | colorize | less -rMXx1 +Gg; redraw full
 					else drawm "Log empty!" "$red" 2; drawm
 					fi
 					;;
@@ -1368,15 +1569,15 @@ wasnt() { #? Returns or sets previous true or false state of a variable, usage: 
 
 writelog() { #? Write to logfile, buffer and colorise terminal output with grc
 	if [[ $loglevel -eq 1000 ]]; then return; fi
-	declare input=${2:-$(</dev/stdin)};
+	declare input=${2:-$(</dev/stdin)}
 
 	if [[ $1 -le $loglevel || $loglevel -eq 103  ]]; then file="$logfile"; else file="/dev/null"; fi
 	if [[ $loglevel -eq 103 ]]; then echo -en "$input\n" > "$file"; return; fi
 
-	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | grc/grcat
+	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | colorize
 	drawm "$drawm_ltitle" "$drawm_lcolor"
 
-	if [[ $1 -le 8 && $testonly != "true" && $loglevel -ne 103 ]]; then buffer add "$input"; fi
+	if not testonly && [[ $1 -le 8 && $loglevel -ne 103 ]]; then buffer add "$input"; fi
 }
 
 x_debug1() { #* Remove
@@ -1398,13 +1599,13 @@ x_debug1() { #* Remove
 		key=""
 		while [[ -z $key ]]; do
 		#drawm "Debug Mode" "$magenta"
-		tput sc; tput cup $menuypos 0
+		tput sc; tput cup 0 0
 		echo -en "${bold} T = Test  F = Full test  P = Precheck  G = grctest  R = routetest  Q = Quit  A = Add line  C = Clear  Ö = Custom  V = Clear  B = Buffer:$scrolled"
 		tput rc
-		read -srd '' -t 0.0001 -n 10000
-		read -rsn 1 -t 1 key
+		read -srd '' -t 0.0001 -n 10000 || true
+		read -rsn 1 key || true
 		done
-		if [[ $key == "$escape_char" ]]; then read -rsn3 -t 0.0001 key ; fi
+		if [[ $key == "$escape_char" ]]; then read -rsn3 -t 0.0001 key || true ; fi
 		tput el
 		case "$key" in
 		'[A') buffer "up" ;;
@@ -1418,7 +1619,7 @@ x_debug1() { #* Remove
 		f|F) testspeed "full" ;;
 		p|P) precheck_speed; echo "" ;;
 		g|G) if [[ -s $logfile ]]; then writelog 8 "${logfile}:\n$(tail -n500 "$logfile")"; fi; drawm ;;
-		b|B) echo -e "$(<$bufferfile)" | grc/grcat; drawm ;;
+		b|B) echo -e "$(<$bufferfile)" | colorize; drawm ;;
 		r|R) routetest ;;
 		a|A) echo "Korv" | writelog 5  ;;
 		v|V) redraw full 
