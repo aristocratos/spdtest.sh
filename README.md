@@ -14,7 +14,7 @@ If slow speed (defined by user) is detected, then runs a number of download and 
 
 **[speedtest](https://www.speedtest.net/apps/cli)** Official speedtest client from Ookla, needs to be in path or defined in config
 
-**[Python 2.7-3.x](https://www.python.org/downloads)** Needed for speedtest-cli and grc  
+**[Python 3](https://www.python.org/downloads)** Needed for speedtest-cli and grc  
 
 **[jq](https://stedolan.github.io/jq/)** Needed for json parsing  
 

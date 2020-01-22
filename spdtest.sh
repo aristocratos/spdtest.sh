@@ -121,10 +121,10 @@ main_menu_len=0
 menu_status=0
 timer_menu=0
 #? Menu format "Text".<underline position>."color"
-# "Help.1.yellow"
 menu_array=(
 	"Quit.1.red"
 	"Menu.1.yellow"
+	"Help.1.blue"
 	"Timer.4.green"
 	"Idle.1.magenta"
 	"Pause.1.yellow"
@@ -272,7 +272,7 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			trace_errors="true"
 		;;
 		-h|--help)
-			echo -e "USAGE: $funcname [OPTIONS]"
+			echo -e "USAGE: $0 [OPTIONS]"
 			echo ""
 			echo -e "OPTIONS:"
 			echo -e "\t-t, --test num              Runs full test 1 or <x> number of times and quits"
@@ -367,6 +367,14 @@ net_status="$(</sys/class/net/"$net_device"/operstate)"
 
 #? Start functions ------------------------------------------------------------------------------------------------------------------>
 
+assasinate() { #? Silently kill running process if not already dead
+	local i
+	for i in "$@"; do
+	if kill -0 "$i" >/dev/null 2>&1; then kill "$i" >/dev/null 2>&1; fi 
+	done
+}
+
+
 ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints if "x" equals counter
 			if [[ $animx -eq $1 ]]; then
 				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
@@ -438,14 +446,14 @@ buffline() { #? Get current buffer from scroll position and window height, cut o
 	echo -e "$(<$bufferfile)" | tail -n$((buffsize+scrolled)) | head -n "$buffsize" | cut -c -"$((width-1))" | colorize
 }
 
-bury() { 
+bury() { #? Silently remove files
 	local i
 	for i in "$@"; do
 	rm "$i" >/dev/null 2>&1
 	done
 }
 
-colorize() {
+colorize() { #?
 	declare input=${1:-$(</dev/stdin)}
 	eval declare -x "$grc_import"='$input'
 python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
@@ -670,12 +678,12 @@ contains() { #? Function for checking if a value is contained in an array, argum
 
 ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing otherwise cleanup and exit
 	if now testing; then
-		murder "$speedpid" "$routepid"
-		was broken add $broken
+		assasinate "$speedpid" "$routepid"
+		reset broken
 		broken=1
 		return
 	else
-		murder "$secpid" "$routepid" "$speedpid"
+		assasinate "$secpid" "$routepid" "$speedpid"
 		bury "$secfile" "$speedfile" "$routefile" $tmpout
 		if now $buffer_save && [[ -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
 		bury $bufferfile
@@ -685,7 +693,12 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 	fi
 }
 
-deliver() { touch "$1"; chmod 600 "$1"; }
+deliver() {  #? Create file(s) if not created and set r/w for user only	
+	local i
+	for i in "$@"; do
+	touch "$i"; chmod 600 "$i"; 
+	done
+}
 
 drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sleep time>
 	local curline tlength mline i il da
@@ -977,7 +990,7 @@ inputwait() { #? Timer and input loop
 
 		if  ( not paused && now pausetoggled) || (not paused pausetoggled && now displaypause && monitor_on); then
 			paused="true"
-			murder "$secpid"
+			assasinate "$secpid"
 			gen_menu
 			drawm
 		elif (now paused && not pausetoggled) || (now paused displaypause && not pausetoggled && ! monitor_on); then
@@ -990,7 +1003,7 @@ inputwait() { #? Timer and input loop
 		if now paused updatesec && not idledone; then
 			updatesec=0;
 		elif now updatesec && not idledone paused; then
-			murder "$secpid"
+			assasinate "$secpid"
 			tcount $secs &
 			secpid="$!"
 			updatesec=0
@@ -1002,7 +1015,7 @@ inputwait() { #? Timer and input loop
 	done
 	if [[ $scrolled -gt 0 ]]; then buffer "redraw" 0; fi
 	if [[ -n $idletimer ]] && now idle && not slowgoing idlebreak; then idledone=1; fi
-	murder "$secpid"
+	assasinate "$secpid"
 }
 
 logrotate() { #? Rename logfile, compress and create new if size is over $logsize
@@ -1036,13 +1049,6 @@ menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: togg
 
 monitor_on() { if ( xset q | grep -q "Monitor is On" ); then return 0; else return 1; fi; } #? Check if display is on with xset
 
-murder() { 
-	local i
-	for i in "$@"; do
-	if kill -0 "$i" >/dev/null 2>&1; then kill "$i" >/dev/null 2>&1; fi 
-	done
-}
-
 myip() { curl -s ipinfo.io/ip; } #? Get public IP
 
 not() { #? Invert of now(), for readability in big if statements, usage: not "var1" ["var2"] ...
@@ -1070,10 +1076,10 @@ now() { #? Returns true or false for one or multiple variables, usage: now "var1
 
 	local var="$1"
 	if [[ -z ${!var} || ${!var} =~ 0|false|False|FALSE ]]; then
-		if [[ -n ${!var} ]] && ! was "$var"; then was "$var" add; fi
+		if [[ -n ${!var} ]] && wasnt "$var"; then reset "$var"; fi
 		return 1
 	elif [[ ${!var} =~ 1|true|True|TRUE ]]; then
-		if ! was "$var"; then was "$var" add; fi
+		if wasnt "$var"; then reset "$var"; fi
 		return 0
 	fi
 }
@@ -1285,7 +1291,7 @@ routetest() { #? Test routes with mtr
 	testing=0
 }
 
-running() { if kill -0 "$1" >/dev/null 2>&1; then return 0; else return 1; fi; }
+running() { if kill -0 "$1" >/dev/null 2>&1; then return 0; else return 1; fi; } #? Returns true if process is running, usage: running "process pid"
 
 tcount() { #? Run timer count and write to shared memory, meant to be run in background
 	local rsec lsec="$1"
@@ -1392,7 +1398,7 @@ testspeed() { #? Using official Ookla speedtest client
 			test_type_checker
 		done
 		
-		if [[ $mode == "down" ]]; then murder "$speedpid"; fi
+		if [[ $mode == "down" ]]; then assasinate "$speedpid"; fi
 		
 		while [[ $stype == "upload" && $mode == "full" ]]; do
 			up_speed=$(echo "$speedstring" | jq '.upload.bandwidth'); up_speed=$(((up_speed*unitop)>>20))
@@ -1492,14 +1498,14 @@ testspeed() { #? Using official Ookla speedtest client
 		warnings=""
 	done #? Test loop end ----------------------------------------------------------------------------------------------------------------------->
 	
-	murder "$speedpid"
+	assasinate "$speedpid"
 	if now broken && [[ $mode == "full" ]]; then tput el; tput el1; writelog 1 "\nWARNING: Full test aborted!\n"; 
 	elif now broken && [[ $mode == "down" ]]; then tput el; tput el1; writelog 2 "\nWARNING: Slow test aborted!\n"; 
 	elif [[ $mode == "full" ]]; then writelog 1 " "; fi
 	testing=0
 }
 
-toggle() {
+toggle() { #? Toggle a variables true or false state
 	if [[ -z $1 || -z ${!1} ]]; then return; fi
 
 	if [[ "$#" -gt 1 ]]; then
@@ -1549,7 +1555,7 @@ waiting() { #? Show animation and text while waiting for background job, argumen
 
 }
 
-was() { #? Returns or sets previous true or false state of a variable, usage: was "variable name" [add]
+was() { #? Returns state or sets previous true or false state of a variable, usage: was "variable name" [add] [value]
 	if [[ -z $1 ]]; then return; fi
 	local out var="$1"
 	if [[ $2 == "add" ]]; then
@@ -1562,12 +1568,12 @@ was() { #? Returns or sets previous true or false state of a variable, usage: wa
 	fi
 }
 
-wasnt() { #? Returns or sets previous true or false state of a variable, usage: was "variable name" [add]
+wasnt() { #? Returns true if previous variable state is NOT true, usage: wasnt "variable name"
 	if [[ -z $1 ]]; then return; fi
 	if was "$1"; then return 1; else return 0; fi
 }
 
-writelog() { #? Write to logfile, buffer and colorise terminal output with grc
+writelog() { #? Write to logfile, buffer and send to colorize()
 	if [[ $loglevel -eq 1000 ]]; then return; fi
 	declare input=${2:-$(</dev/stdin)}
 
@@ -1654,7 +1660,7 @@ if [[ $mtr == "false" ]]; then mtr_internal="false"; mtr_internal_ok="false"; fi
 
 trap ctrl_c INT
 
-touch $tmpout; chmod 600 $tmpout
+deliver "$tmpout"
 
 if [[ $genservers == "true" ]]; then
 	echo -e "\nCreating server.cfg.sh"
@@ -1666,8 +1672,7 @@ fi
 logrotate
 if [[ ! -w $logfile && $loglevel != 0 ]]; then echo "ERROR: Couldn't write to logfile: $logfile"; exit 1; fi
 
-touch $speedfile; chmod 600 $speedfile
-touch $routefile; chmod 600 $routefile
+deliver "$speedfile" "$routefile"
 
 if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true" or arguments -t or --test was passed to script
 	getservers
@@ -1678,18 +1683,14 @@ if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true"
 		routetest
 		if now broken; then exit 1; fi
 	done
-	murder "$routepid"
-	murder "$speedpid"
-	bury "$speedfile"
-	bury "$routefile"
-	bury "$tmpout"
+	assasinate "$routepid" "$speedpid"
+	bury "$speedfile" "$routefile" "$tmpout"
 	exit 0
 fi
 
 if [[ ! -x ./getIdle ]]; then idle="false"; fi
 
-touch $bufferfile; chmod 600 $bufferfile
-touch $secfile; chmod 600 $secfile
+deliver "$bufferfile" "$secfile"
 tput smcup; tput clear; tput civis; tput cup 3 0; stty -echo
 
 trap 'redraw full' WINCH
