@@ -385,9 +385,9 @@ assasinate() { #? Silently kill running process if not already dead
 ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints if "x" equals counter
 			if ((animx==$1)); then
 				if ((charx>=${#chars})); then charx=0; fi
-				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
+				animout="${chars:$charx:1}"; ((++charx)); animx=0
 			fi
-			animx=$((animx+1))
+			((++animx))
 }
 
 buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
@@ -411,9 +411,9 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		drawscroll
 		return
 
-	elif [[ $1 == "up" ]] && ((bufflen>buffsize & scrolled<bufflen-buffsize-1)); then scrolled=$((scrolled+1))
+	elif [[ $1 == "up" ]] && ((bufflen>buffsize & scrolled<bufflen-buffsize-1)); then ((++scrolled))
 
-	elif [[ $1 == "down" ]] && ((scrolled>0)); then scrolled=$((scrolled-1))
+	elif [[ $1 == "down" ]] && ((scrolled>0)); then ((scrolled--))
 	
 	elif [[ $1 == "pageup" ]] && ((bufflen>buffsize & scrolled<bufflen-buffsize-1)); then scrolled=$((scrolled+buffsize))
 		if ((scrolled>=bufflen-buffsize-1)); then scrolled=$((bufflen-buffsize-1)); fi
@@ -783,7 +783,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 
 	for i in "${tmp_array[@]}"; do
 		if [[ $i == "\n" ]]; then 
-			menuconv=$(( (width*nlinex) +1 )); nlinex=$((nlinex+1))
+			menuconv=$(( (width*nlinex) +1 )); ((++nlinex))
 			main_menu="${main_menu}\n\e[1C"
 			no_color=0
 		else	
@@ -797,7 +797,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 			if ([[ $i == "Pause" ]] && now paused) || ([[ $i == "Idle" ]] && now idle); then menuconv=$((menuconv+3))
 			elif ([[ $i == "Pause" ]] && not paused) || ([[ $i == "Idle" ]] && not idle); then menuconv=$((menuconv+4)); fi
 
-			menuconv=$((menuconv+${#i}+2)); if ((menuconv>=width*nlinex)); then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 )); nlinex=$((nlinex+1)); else nline=""; fi
+			menuconv=$((menuconv+${#i}+2)); if ((menuconv>=width*nlinex)); then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 )); ((++nlinex)); else nline=""; fi
 
 			if [[ $i == "Pause" ]]; then i="$i ${!color}$paustate"; elif [[ $i == "Idle" ]]; then i="$i ${!color}$idlstate"; fi
 
@@ -876,7 +876,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 		local num=1
 		for tl in "${testlista[@]}"; do
 			writelog 3 "$num. ${testlistdesc["$tl"]}"
-			num=$((num+1))
+			((++num))
 		done
 	else
 		echo "#? Automatically generated server list, servers won't be refreshed at start if this file exists" >> "$servercfg"
@@ -897,7 +897,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 			testlistdesc["$servnum"]="$servdesc"
 			echo -e "testlista+=(\"$servnum\");\t\ttestlistdesc[\"$servnum\"]=\"$servdesc\"" >> "$servercfg"
 			writelog 3 "$num. $servdesc"
-			num=$((num+1))
+			((++num))
 		done
 	fi
 	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
@@ -1086,7 +1086,7 @@ not() { #? Invert of now(), for readability in big if statements, usage: not "va
 	if [[ "$#" -gt 1 ]]; then
 		local i x=0
 		for i in "$@"; do
-			if not "$i"; then x=$((x+1)); fi
+			if not "$i"; then ((++x)); fi
 		done
 		if [[ x -eq "$#" ]]; then return 0; else return 1; fi
 	fi
@@ -1099,7 +1099,7 @@ now() { #? Returns true or false for one or multiple variables, usage: now "var1
 	if [[ "$#" -gt 1 ]]; then
 		local i x=0
 		for i in "$@"; do
-			if now "$i"; then x=$((x+1)); fi
+			if now "$i"; then ((++x)); fi
 		done
 		if [[ x -eq "$#" ]]; then return 0; else return 1; fi
 	fi
@@ -1209,12 +1209,12 @@ progress() { #? Print progress bar, arguments: <percent> [<"text">] [<text color
 		else 
 			echo -n " "
 		fi
-		xp=$((xp+1))
+		((++xp))
 	fi
 
 	for((x=1;x<=2;x++)); do
 		for((i=0;i<((10-${#text})/2);i++)); do
-			xp=$((xp+1))
+			((++xp))
 			if [[ $xp -le $((percent/10)) ]]; then echo -n "="
 			else echo -n " "
 			fi
@@ -1302,7 +1302,7 @@ routetest() { #? Test routes with mtr
 					tcount=0
 				fi
 				sleep 0.2
-				tcount=$((tcount+1)); pcount=$((pcount+1))
+				((++tcount)); ((++pcount))
 			done
 
 			echo -en "\r"; tput el
@@ -1410,7 +1410,7 @@ testspeed() { #? Using official Ookla speedtest client
 				x=0
 			fi
 			sleep 0.01
-			x=$((x+1))
+			((++x))
 		done
 
 		while [[ ! $stype =~ download|log|ended ]]; do
@@ -1482,21 +1482,21 @@ testspeed() { #? Using official Ookla speedtest client
 			if [[ -n $packetloss && ! $packetloss =~ null|0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			tests=$((tests+1))
+			((++tests))
 		
 		elif [[ $mode == "full" ]] && now slowerror; then
 			warnings="ERROR: Couldn't test server!"
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			tests=$((tests+1))
+			((++tests))
 		
 		elif [[ $mode == "down" ]] && not slowerror; then
-			if not slowgoing; then rndbkp[$xl]="$tl"; xl=$((xl+1)); fi
+			if not slowgoing; then rndbkp[$xl]="$tl"; ((++xl)); fi
 			if [[ $down_speed -le $slowspeed ]]; then downst="FAIL!"; else downst="OK!"; fi
 			if [[ $tdate != $(date +%d) ]] || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc["$tl"]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
-			times_tested=$((times_tested+1))
+			((++times_tested))
 			#drawm "Testing speed" "$green"
 			if ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && not slowgoing; then
 				tl2=$tl
@@ -1504,17 +1504,17 @@ testspeed() { #? Using official Ookla speedtest client
 					tl2=$(random array_value testlista)
 				done
 				tl=$tl2
-				tests=$((tests+1))
+				((++tests))
 			elif ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && now slowgoing; then
-				xl=$((xl+1))
+				((++xl))
 				tl=${rndbkp[$xl]}
-				tests=$((tests+1))
+				((++tests))
 			else
 				tests=$((max_tests+1))
 			fi
 		
 		elif [[ $mode == "down" ]] && now slowerror; then
-			err_retry=$((err_retry+1))
+			((++err_retry))
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
