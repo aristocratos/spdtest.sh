@@ -70,6 +70,8 @@ startuptest="false"		#* If "true" and paused="false", tests speed at startup bef
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
 testnum=1				#* Number of times to loop full tests in testonly mode
 
+trace_errors="true" #? Remove!
+
 ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
 speedtest_cli="speedtest-cli/speedtest.py"		#* Path to unofficial speedtest-cli
 spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
@@ -83,6 +85,8 @@ routefile="${temp}/spdtest-route.$$"
 tmpout="${temp}/spdtest-tmpout.$$"
 bufferfile="${temp}/spdtest-buffer.$$"
 grc_import="grc_import$$"
+grc_err=0
+getIdle_err=0
 if [[ -z $DISPLAY ]]; then declare -x DISPLAY=":0"; fi
 startup=1
 forcetest=0
@@ -119,6 +123,8 @@ menuypos=1
 main_menu=""
 main_menu_len=0
 menu_status=0
+net_status=""
+proc_nd=""
 timer_menu=0
 #? Menu format "Text".<underline position>."color"
 menu_array=(
@@ -160,7 +166,7 @@ declare -A old_list
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
 if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
-if [[ $max_buffer -gt 0 && $max_buffer -le $((height*2)) ]]; then max_buffer=$((height*2)); fi
+if (( max_buffer>0 & max_buffer<(height*2) )); then max_buffer=$((height*2)); fi
 if [[ $main_menu_start == "shown" ]]; then menu_status=1; fi
 
 #? Colors
@@ -191,6 +197,7 @@ bgs="${reset}${dark}─${reset}${bold}"
 
 command -v $ookla_speedtest >/dev/null 2>&1 || { echo "Error Ookla speedtest client not found"; exit 1; }
 command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli missing"; exit 1; }
+command -v mtr >/dev/null 2>&1 || mtr="false"
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
 argumenterror() { #? Handles argument errors
@@ -313,15 +320,17 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 	shift
 done
 
-#? End argument parsing ------------------------------------------------------------------------------------------------------------------>
 
-#? Open SSH control master and get network devices if set to "auto", otherwise check that devices are valid ------------------------------>
-arr_network_init() { echo; } 
-
-if [[ $loglevel -gt 4 ]]; then loglevel=4; fi
+if ((loglevel>4)); then loglevel=4; fi
 if [[ $unit = "mbyte" ]]; then unit="MB/s"; unitop="1"; else unit="Mbps"; unitop="8"; fi
 if [[ $displaypause == "true" ]]; then idle="false"; fi
 
+
+#? End argument parsing ------------------------------------------------------------------------------------------------------------------>
+
+#? Start functions ------------------------------------------------------------------------------------------------------------------>
+
+arr_network_init() { #? Open SSH control master and get network devices if set to "auto", otherwise check that devices are valid
 if [[ $net_device == "auto" ]]; then
 	net_device=$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
 else
@@ -329,7 +338,7 @@ else
 	for good_device in $(grep ":" /proc/net/dev | awk '{print $1}' | sed "s/:.*//"); do
 		if [[ "$net_device" = "$good_device" ]]; then is_good=1; break; fi
 	done
-	if [[ $is_good -eq 0 ]]; then
+	if not is_good; then
 			echo "Net device \"$net_device\" not found. Should be one of these:"
 			grep ":" /proc/net/dev | awk '{print $1}' | sed "s/:.*//"
 			exit 1
@@ -351,12 +360,11 @@ if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
 		for good_device in $(echo "$ssh_grep" | awk '{print $1}' | sed "s/:.*//"); do
 			if [[ "$precheck_ssh_nd" = "$good_device" ]]; then is_good=1; break; fi
 		done
-		if [[ $is_good -eq 0 ]]; then
+		if not is_good; then
 			echo "Remote machine net device \"$precheck_ssh_nd\" not found. Should be one of these:"
 			echo "$ssh_grep" | awk '{print $1}' | sed "s/:.*//"
 			exit 1
 		fi
-		unset ssh_grep is_good good_device
 	fi
 	proc_nd="$precheck_ssh_nd"
 else
@@ -364,8 +372,7 @@ else
 fi
 
 net_status="$(</sys/class/net/"$net_device"/operstate)"
-
-#? Start functions ------------------------------------------------------------------------------------------------------------------>
+}
 
 assasinate() { #? Silently kill running process if not already dead
 	local i
@@ -376,21 +383,17 @@ assasinate() { #? Silently kill running process if not already dead
 
 
 ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints if "x" equals counter
-			if [[ $animx -eq $1 ]]; then
-				if [[ $charx -ge ${#chars} ]]; then charx=0; fi
-				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
+			if ((animx==$1)); then
+				if ((charx>=${#chars})); then charx=0; fi
+				animout="${chars:$charx:1}"; ((charx++)); animx=0
 			fi
-			animx=$((animx+1))
+			((animx++))
 }
 
-# broken() {
-# 	if [[ $broken -eq 1 ]]; then return 0; else return 1; fi
-# }
-
 buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
-	if [[ -z $1 && $max_buffer -le $buffsize ]]; then return 1
-	elif [[ -z $1 && $max_buffer -gt $buffsize ]]; then return 0
-	elif [[ $max_buffer -le $buffsize ]]; then return; fi
+	if [[ -z $1 ]] && ((max_buffer<=buffsize)); then return 1
+	elif [[ -z $1 ]] && ((max_buffer>buffsize)); then return 0
+	elif ((max_buffer<=buffsize)); then return; fi
 
 	local buffout scrtext y x
 	bufflen=$(wc -l <"$bufferfile")
@@ -400,30 +403,30 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		scrolled=0
 		addline="$2"
 		addlen=$(echo -en "$addline" | wc -l)
-		if [[ $addlen -ge $max_buffer ]]; then echo -e "$(echo -e "$addline" | tail -n"$max_buffer")\n" > "$bufferfile"
-		elif [[ $((bufflen+addlen)) -gt $max_buffer ]]; then buffer="$(tail -n$(((max_buffer-addlen)-(max_buffer/10))) <"$bufferfile")\n$addline"; echo -e "$buffer" > "$bufferfile"
+		if ((addlen>=max_buffer)); then echo -e "$(echo -e "$addline" | tail -n"$max_buffer")\n" > "$bufferfile"
+		elif (( bufflen+addlen>max_buffer )); then buffer="$(tail -n$(((max_buffer-addlen)-(max_buffer/10))) <"$bufferfile")\n$addline"; echo -e "$buffer" > "$bufferfile"
 		else echo -e "${buffer}${addline}" >> "$bufferfile"
 		fi
 		bufflen=$(wc -l <"$bufferfile")
 		drawscroll
 		return
 
-	elif [[ $1 == "up" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scrolled=$((scrolled+1))
+	elif [[ $1 == "up" ]] && ((bufflen>buffsize & scrolled<bufflen-buffsize-1)); then scrolled=$((scrolled+1))
 
-	elif [[ $1 == "down" && $scrolled -ne 0  ]]; then scrolled=$((scrolled-1))
+	elif [[ $1 == "down" ]] && ((scrolled>0)); then scrolled=$((scrolled-1))
 	
-	elif [[ $1 == "pageup" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scrolled=$((scrolled+buffsize))
-		if [[ $scrolled -ge $((bufflen-buffsize-1)) ]]; then scrolled=$((bufflen-buffsize-1)); fi
+	elif [[ $1 == "pageup" ]] && ((bufflen>buffsize & scrolled<bufflen-buffsize-1)); then scrolled=$((scrolled+buffsize))
+		if ((scrolled>=bufflen-buffsize-1)); then scrolled=$((bufflen-buffsize-1)); fi
 	
-	elif [[ $1 == "pagedown" && $scrolled -ne 0 ]]; then scrolled=$((scrolled-buffsize))
-		if [[ $scrolled -lt 0 ]]; then scrolled=0; fi
+	elif [[ $1 == "pagedown" ]] && ((scrolled>0)); then scrolled=$((scrolled-buffsize))
+		if ((scrolled<0)); then scrolled=0; fi
 
-	elif [[ $1 == "home" && $bufflen -gt $buffsize && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scrolled=$((bufflen-buffsize-1))
+	elif [[ $1 == "home" ]] && ((bufflen>buffsize & scrolled<bufflen-buffsize-1)); then scrolled=$((bufflen-buffsize-1))
 
-	elif [[ $1 == "end" && $scrolled -ne 0 ]]; then scrolled=0
+	elif [[ $1 == "end" ]] && ((scrolled>0)); then scrolled=0
 
 	elif [[ $1 == "redraw" ]]; then scrolled=${2:-$scrolled}
-		if [[ $scrolled -ge $((bufflen-buffsize-1)) ]]; then scrolled=$((bufflen-buffsize-1)); fi
+		if ((scrolled>=bufflen-buffsize-1)); then scrolled=$((bufflen-buffsize-1)); fi
 		
 	elif [[ $1 == "clear" ]]; then
 		true > "$bufferfile"
@@ -453,9 +456,12 @@ bury() { #? Silently remove files
 	done
 }
 
-colorize() { #?
+colorize() { #? Make the text pretty using a slightly modified version of grc
 	declare input=${1:-$(</dev/stdin)}
+	if [[ -z $input ]]; then return; fi
+	if ((grc_err>=10)); then echo -e "$input"; return; fi
 	eval declare -x "$grc_import"='$input'
+
 python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
 from __future__ import print_function
 
@@ -660,7 +666,8 @@ while 1:
 			else:
 				raise
 EOF
-	grc_err="$?"
+
+	grc_err=$((grc_err+$?))
 	if [[ $grc_err -ne 0 ]]; then echo -e "$input"; fi
 }
 
@@ -726,7 +733,7 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sle
 	fi
 	
 	if now testing; then echo -en "${bold}\e[1C$bgl${ul}${yellow}C${reset}${bold}trl+${ul}${yellow}C$bgr\e[1C"; fi
-	if [[ $detects -ge 1 ]]; then echo -en "\e[1C${bgl}${red}!${white}=$detects${bgr}"; fi
+	if ((detects>0)); then echo -en "\e[1C${bgl}${red}!${white}=$detects${bgr}"; fi
 	
 	if [[ -n $scroll_symbol ]]; then drawscroll_symbol; fi
 	
@@ -742,15 +749,14 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sle
 
 drawscroll() { #? Draw scrollbar
 	tput sc
-	if [[ $scrolled -gt 0 && $scrolled -lt $((bufflen-buffsize-1)) ]]; then scroll_symbol="↕"
-	elif [[ $scrolled -gt 0 && $scrolled -eq $((bufflen-buffsize-1)) ]]; then scroll_symbol="↓"
-	elif [[ $scrolled -eq 0 && $bufflen -gt $buffsize ]]; then scroll_symbol="↑"
+	if ((scrolled>0 & scrolled<bufflen-buffsize-1)); then scroll_symbol="↕"
+	elif ((scrolled>0 & scrolled==bufflen-buffsize-1)); then scroll_symbol="↓"
+	elif ((scrolled==0 & bufflen>buffsize)); then scroll_symbol="↑"
 	else return; fi
 
 	drawscroll_symbol
 
-	if [[ $scrolled -gt 0 && $scrolled -le $((bufflen-buffsize-1)) ]]; then 
-		#y=$(echo "scale=2; $scrolled / ($bufflen-$buffsize-1) * ($buffsize-1)" | bc); y=${y%.*}; y=$(( (buffsize-y)+(buffpos) ))
+	if ((scrolled>0 & scrolled<=bufflen-buffsize-1)); then 
 		y=$(echo "scale=2; $scrolled / ($bufflen-$buffsize) * ($buffsize+1)" | bc); y=${y%.*}; y=$(( (buffsize-y)+buffpos ))
 		tput cup "$y" $((width-1)); echo -en "${bold}▒${reset}"
 	fi
@@ -781,7 +787,7 @@ gen_menu() { #? Generate main menu and adapt for window width
 			main_menu="${main_menu}\n\e[1C"
 			no_color=0
 		else	
-			if [[ $1 == "darken" ]] || [[ $no_color -eq 1 && ! ${i%%.*} == "Quit" ]]; then darken="$dark"; color="dark"; ult=""
+			if [[ $1 == "darken" ]] || now no_color && [[ ! ${i%%.*} == "Quit" ]]; then darken="$dark"; color="dark"; ult=""
 
 			else darken=""; color=${i##*.*.}; fi
 
@@ -791,19 +797,19 @@ gen_menu() { #? Generate main menu and adapt for window width
 			if ([[ $i == "Pause" ]] && now paused) || ([[ $i == "Idle" ]] && now idle); then menuconv=$((menuconv+3))
 			elif ([[ $i == "Pause" ]] && not paused) || ([[ $i == "Idle" ]] && not idle); then menuconv=$((menuconv+4)); fi
 
-			menuconv=$((menuconv+${#i}+2)); if [[ $menuconv -ge $((width*nlinex)) ]]; then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 )); nlinex=$((nlinex+1)); else nline=""; fi
+			menuconv=$((menuconv+${#i}+2)); if ((menuconv>=width*nlinex)); then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 )); nlinex=$((nlinex+1)); else nline=""; fi
 
 			if [[ $i == "Pause" ]]; then i="$i ${!color}$paustate"; elif [[ $i == "Idle" ]]; then i="$i ${!color}$idlstate"; fi
 
-			if [[ $underpos -gt 0 ]]; then i="${darken}${i:0:$((underpos))}${ult}${!color}${i:$underpos:1}${reset}${darken}${bold}${i:$((underpos+1))}"
+			if ((underpos>0)); then i="${darken}${i:0:$((underpos))}${ult}${!color}${i:$underpos:1}${reset}${darken}${bold}${i:$((underpos+1))}"
 			else i="${ult}${!color}${i:0:1}${reset}${darken}${bold}${i:$((underpos+1))}"; fi
 
 			main_menu="${main_menu}${nline}${bgl}${i}${bgr}"
 		fi
 	done
 
-	if [[ $main_menu_len -lt $menuconv ]]; then main_menu_len=$menuconv; redraw calc
-	elif [[ $main_menu_len -gt $menuconv ]]; then main_menu_len=$menuconv; redraw calc; buffer redraw; fi
+	if ((main_menu_len<menuconv)); then main_menu_len=$menuconv; redraw calc
+	elif ((main_menu_len>menuconv)); then main_menu_len=$menuconv; redraw calc; buffer redraw; fi
 }
 
 getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"> <sample time in seconds> <["get"][value from previous get]>
@@ -823,6 +829,7 @@ getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"
 }
 
 getIdle() { #? Returns current XServer idle time in seconds
+if ((getIdle_err>=10)); then return; fi
 python3 - << EOF
 import ctypes, os
 class XScreenSaverInfo(ctypes.Structure):
@@ -842,6 +849,7 @@ xss_info = xss.XScreenSaverAllocInfo()
 xss.XScreenSaverQueryInfo( dpy, root, xss_info)
 print( "%d" %(xss_info.contents.idle / 1000) )
 EOF
+getIdle_err=$((getIdle_err+$?))
 }
 
 getproc() { #? Get /proc/dev/net 
@@ -1352,9 +1360,9 @@ testspeed() { #? Using official Ookla speedtest client
 	elif [[ $mode == "down" ]]; then
 
 		max_tests=$slowretry
-		if [[ ${#testlista[@]} -gt 1 && $slowgoing == 0 ]]; then
+		if [[ ${#testlista[@]} -gt 1 ]] && not slowgoing; then
 			tl=$(random array_value testlista)
-		elif [[ ${#testlista[@]} -gt 1 && $slowgoing == 1 ]]; then
+		elif [[ ${#testlista[@]} -gt 1 ]] && now slowgoing; then
 			rnum=${rndbkp[$xl]}
 			tl=${testlista[$rnum]}
 		else
@@ -1365,11 +1373,11 @@ testspeed() { #? Using official Ookla speedtest client
 
 	while [[ $tests -le $max_tests ]]; do #? Test loop start ------------------------------------------------------------------------------------>
 		if [[ $mode == "full" ]]; then
-			if [[ $slowgoing == 0 && $forcetest == 0 ]]; then
+			if not slowgoing forcetest testonly; then
 				writelog 1 "\n<---------------------------------------Slow speed detected!---------------------------------------->"
 				slowgoing=1
 			fi
-			if [[ $tests == 0 ]]; then
+			if ((tests==0)); then
 				writelog 1 "Speedtest start: ($(date +%Y-%m-%d\ %T)), IP: $(myip)"
 				printf "%-12s%-12s%-10s%-14s%-10s%-10s\n" "Down $unit" "Up $unit" "Ping" "Progress" "Time /s" "Server" | writelog 1
 			fi
@@ -1391,7 +1399,7 @@ testspeed() { #? Using official Ookla speedtest client
 		speedpid="$!"
 
 		x=1
-		while [[ $stype == ""  || $stype == "null" || $stype == "testStart" || $stype == "ping" ]]; do
+		while [[ $stype == ""  || $stype =~ null|testStart|ping ]]; do
 			test_type_checker
 			if [[ $stype == "ping" ]]; then server_ping=$(echo "$speedstring" | jq '.ping.latency'); server_ping=${server_ping%.*}; fi
 			if [[ $x -eq 10 ]]; then
@@ -1404,7 +1412,12 @@ testspeed() { #? Using official Ookla speedtest client
 			sleep 0.01
 			x=$((x+1))
 		done
-		sleep 0.1
+
+		while [[ ! $stype =~ download|log|ended ]]; do
+			sleep 0.1
+			if now broken; then break 2; fi
+		done
+
 		while [[ $stype == "download" ]]; do
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth'); down_speed=$(((down_speed*unitop)>>20))
 			down_progress=$(echo "$speedstring" | jq '.download.progress'); down_progress=$(echo "$down_progress*100" | bc -l 2> /dev/null)
@@ -1421,6 +1434,8 @@ testspeed() { #? Using official Ookla speedtest client
 		done
 		
 		if [[ $mode == "down" ]]; then assasinate "$speedpid"; fi
+
+		if now broken; then break; fi
 		
 		while [[ $stype == "upload" && $mode == "full" ]]; do
 			up_speed=$(echo "$speedstring" | jq '.upload.bandwidth'); up_speed=$(((up_speed*unitop)>>20))
@@ -1438,7 +1453,7 @@ testspeed() { #? Using official Ookla speedtest client
 		if now broken; then break; fi
 		wait $speedpid || true
 
-		if [[ $mode == "full" && $slowerror == 0 ]]; then
+		if [[ $mode == "full" ]] && not slowerror; then
 			sleep 0.1
 			speedstring=$(jq -c 'select(.type=="result")' $speedfile)
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth')
@@ -1456,7 +1471,7 @@ testspeed() { #? Using official Ookla speedtest client
 				if [[ $mtr_internal_ok == "true" && ${#routelistb[@]} -lt $mtr_internal_max && -n $routetemp ]]; then routeadd=1; fi
 			fi
 
-			if [[ $routeadd -eq 1 ]]; then
+			if now routeadd; then
 				routelistb+=("$routetemp")
 				if [[ -z ${routelistdesc["$routetemp"]} ]]; then
 				routelistdesc["$routetemp"]="$(echo "$speedstring" | jq -r '.server.name') ($(echo "$speedstring" | jq -r '.server.location'), $(echo "$speedstring" | jq -r '.server.country'))"
@@ -1464,47 +1479,47 @@ testspeed() { #? Using official Ookla speedtest client
 				fi
 			fi
 			
-			if [[ -n $packetloss && $packetloss != "null" && $packetloss != 0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
+			if [[ -n $packetloss && ! $packetloss =~ null|0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			tests=$((tests+1))
+			((tests++))
 		
-		elif [[ $mode == "full" && $slowerror == 1 ]]; then
+		elif [[ $mode == "full" ]] && now slowerror; then
 			warnings="ERROR: Couldn't test server!"
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			tests=$((tests+1))
+			((tests++))
 		
-		elif [[ $mode == "down" && $slowerror == 0 ]]; then
-			if [[ $slowgoing == 0 ]]; then rndbkp[$xl]="$tl"; xl=$((xl+1)); fi
+		elif [[ $mode == "down" ]] && not slowerror; then
+			if not slowgoing; then rndbkp[$xl]="$tl"; xl=$((xl+1)); fi
 			if [[ $down_speed -le $slowspeed ]]; then downst="FAIL!"; else downst="OK!"; fi
-			if [[ $tdate != $(date +%d) || $times_tested -eq 10 ]]; then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
+			if [[ $tdate != $(date +%d) ]] || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc["$tl"]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
-			times_tested=$((times_tested+1))
+			((times_tested++))
 			#drawm "Testing speed" "$green"
-			if [[ $down_speed -le $slowspeed && ${#testlista[@]} -gt 1 && $tests -lt $max_tests && $slowgoing == 0 ]]; then
+			if ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && not slowgoing; then
 				tl2=$tl
 				while [[ $tl2 == "$tl" ]]; do
 					tl2=$(random array_value testlista)
 				done
 				tl=$tl2
-				tests=$((tests+1))
-			elif [[ $down_speed -le $slowspeed && ${#testlista[@]} -gt 1 && $tests -lt $max_tests && $slowgoing == 1 ]]; then
-				xl=$((xl+1))
+				((tests++))
+			elif ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && now slowgoing; then
+				((xl++))
 				tl=${rndbkp[$xl]}
-				tests=$((tests+1))
+				((tests++))
 			else
 				tests=$((max_tests+1))
 			fi
 		
-		elif [[ $mode == "down" && $slowerror == 1 ]]; then
-			err_retry=$((err_retry+1))
+		elif [[ $mode == "down" ]] && now slowerror; then
+			((err_retry++))
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
 			#drawm "Testing speed" "$green"
-			if [[ ${#testlista[@]} -gt 1 && $err_retry -lt ${#testlista[@]} ]]; then
+			if ((${#testlista[@]}>1 & err_retry<${#testlista[@]})); then
 				tl2=$tl
 				while contains "${errorlist[@]}" "$tl2"; do
 					tl2=$(random array_value testlista)
@@ -1565,10 +1580,9 @@ traperr() {
 }
 
 waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
-			local text=$2
-			local i spaces=""
-			while kill -0 "$1" >/dev/null 2>&1; do
-				for (( i=0; i<${#chars}; i++ )); do
+			local i text=${2:-Waiting...}
+			while running "$1"; do
+				for ((i=0; i<${#chars}; i++)); do
 					sleep 0.2
 					if now broken; then return; fi
 					echo -en "${bold}${white}$text ${red}${chars:$i:1} ${reset}" "\r"
@@ -1596,16 +1610,16 @@ wasnt() { #? Returns true if previous variable state is NOT true, usage: wasnt "
 }
 
 writelog() { #? Write to logfile, buffer and send to colorize()
-	if [[ $loglevel -eq 1000 ]]; then return; fi
+	if ((loglevel==1000)); then return; fi
 	declare input=${2:-$(</dev/stdin)}
 
-	if [[ $1 -le $loglevel || $loglevel -eq 103  ]]; then file="$logfile"; else file="/dev/null"; fi
-	if [[ $loglevel -eq 103 ]]; then echo -en "$input\n" > "$file"; return; fi
+	if (($1<=loglevel | loglevel==103)); then file="$logfile"; else file="/dev/null"; fi
+	if ((loglevel==103)); then echo -en "$input\n" > "$file"; return; fi
 
 	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | colorize
 	drawm "$drawm_ltitle" "$drawm_lcolor"
 
-	if not testonly && [[ $1 -le 8 && $loglevel -ne 103 ]]; then buffer add "$input"; fi
+	if not testonly && (($1<=8 & loglevel!=103)); then buffer add "$input"; fi
 }
 
 x_debug1() { #* Remove
@@ -1676,15 +1690,15 @@ x_debug1() { #* Remove
 
 z__pre_main() { echo -n; }
 
-command -v mtr >/dev/null 2>&1 || mtr="false"
-
-if [[ $mtr == "false" ]]; then mtr_internal="false"; mtr_internal_ok="false"; fi
-
 trap ctrl_c INT
+
+arr_network_init
+
+if not mtr; then mtr_internal="false"; mtr_internal_ok="false"; fi
 
 deliver "$tmpout"
 
-if [[ $genservers == "true" ]]; then
+if now genservers; then #? Gets servers, write to file and quit if -gs or --gen-server-cfg was passed
 	echo -e "\nCreating server.cfg.sh"
 	loglevel=0
 	getservers
@@ -1692,22 +1706,22 @@ if [[ $genservers == "true" ]]; then
 fi
 
 logrotate
-if [[ ! -w $logfile && $loglevel != 0 ]]; then echo "ERROR: Couldn't write to logfile: $logfile"; exit 1; fi
+if [[ ! -w $logfile ]] && ((loglevel!=0)); then echo "ERROR: Couldn't write to logfile: $logfile"; exit 1; fi
 
 deliver "$speedfile" "$routefile"
 
-if [[ $testonly == "true" ]]; then #? Run tests and quit if variable test="true" or arguments -t or --test was passed to script
+if now testonly; then #? Run tests and quit if variable test="true" or arguments -t or --test was passed to script
 	getservers
-	writelog 2 "Logging to: $logfile\n"
 	for i in $testnum; do
 		testspeed "full"
-		if now broken; then exit 1; fi
+		if now broken; then stat=1; break; fi
 		routetest
-		if now broken; then exit 1; fi
+		if now broken; then stat=1; break; fi
+		stat=0
 	done
 	assasinate "$routepid" "$speedpid"
 	bury "$speedfile" "$routefile" "$tmpout"
-	exit 0
+	exit $stat
 fi
 
 deliver "$bufferfile" "$secfile"
@@ -1718,7 +1732,7 @@ gen_menu
 redraw calc
 drawm "Getting servers..." "$green"
 
-if [[ $trace_errors == "true" || $debug == "true" ]]; then
+if now trace_errors || now debug; then
 # exec 19>misc/logfile
 # BASH_XTRACEFD=19
 # set -x
@@ -1727,8 +1741,8 @@ set -o errtrace
 trap traperr ERR
 fi
 
-if [[ $buffer_save == "true" && -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
-if [[ $debug == "true" ]]; then x_debug1; fi #* Remove
+if now buffer_save && [[ -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
+if now debug; then x_debug1; fi #* Remove
 
 #writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
 
@@ -1738,9 +1752,9 @@ if  now displaypause && monitor_on; then paused="true"
 elif now displaypause && ! monitor_on; then paused="false"
 fi
 
-if [[ $paused == "false" && $startuptest == "true" && $net_status == "up" ]]; then
+if not paused && now startuptest && [[ $net_status == "up" ]]; then
 	testspeed "down"
-	if [[ $lastspeed -le $slowspeed && $slowerror == 0 ]]; then startupdetect=1; fi
+	if ((lastspeed<=slowspeed)) && not slowerror; then startupdetect=1; fi
 fi
 
 drawm
@@ -1769,29 +1783,27 @@ z_main_loop() {
 				if [[ $precheck_status = "fail" ]]; then return; fi
 			fi
 			testspeed "down"
-			#drawm
 		fi
 
 		if now broken; then return; fi
 
 		if now forcetest; then
-			if [[ $loglevel -lt 4 ]]; then bkploglevel=$loglevel; loglevel=0; fi
+			if ((loglevel<4)); then bkploglevel=$loglevel; loglevel=0; fi
 			writelog 9 "\n INFO: Running forced test!"
-			testspeed "full"; #drawm
-			routetest; #drawm
-			if [[ -n $bkploglevel && $bkploglevel -lt 4 ]]; then loglevel=$bkploglevel; fi
+			testspeed "full"
+			routetest
+			if [[ -n $bkploglevel ]] && ((bkploglevel<4)); then loglevel=$bkploglevel; fi
 			forcetest=0
-		elif [[ $lastspeed -le $slowspeed && $slowerror == 0 ]]; then
-			testspeed "full"; #drawm
-			routetest; #drawm
+		elif ((lastspeed<=slowspeed)) && not slowerror; then
+			testspeed "full"
+			routetest
 			detects=$((detects + 1))
 			if [[ -n $slowwait ]]; then waitbkp=$waittime; waittime=$slowwait; fi
 		elif [[ $slowgoing == 1 ]]; then
 			if [[ -n $slowwait ]]; then waittime=$waitbkp; fi
-			if [[ $slowerror == 0 ]]; then
+			if not slowerror; then
 				slowgoing=0
 				writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
-				#drawm
 			fi
 		fi
 	fi
