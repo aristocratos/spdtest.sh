@@ -385,9 +385,9 @@ assasinate() { #? Silently kill running process if not already dead
 ax_anim() { #? Gives a character for printing loading animation, arguments: <x> ;Only prints if "x" equals counter
 			if ((animx==$1)); then
 				if ((charx>=${#chars})); then charx=0; fi
-				animout="${chars:$charx:1}"; ((charx++)); animx=0
+				animout="${chars:$charx:1}"; charx=$((charx+1)); animx=0
 			fi
-			((animx++))
+			animx=$((animx+1))
 }
 
 buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clear ["text to add to buffer"][scroll position], no argument returns exit codes for buffer availability
@@ -1482,13 +1482,13 @@ testspeed() { #? Using official Ookla speedtest client
 			if [[ -n $packetloss && ! $packetloss =~ null|0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			((tests++))
+			tests=$((tests+1))
 		
 		elif [[ $mode == "full" ]] && now slowerror; then
 			warnings="ERROR: Couldn't test server!"
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			((tests++))
+			tests=$((tests+1))
 		
 		elif [[ $mode == "down" ]] && not slowerror; then
 			if not slowgoing; then rndbkp[$xl]="$tl"; xl=$((xl+1)); fi
@@ -1496,7 +1496,7 @@ testspeed() { #? Using official Ookla speedtest client
 			if [[ $tdate != $(date +%d) ]] || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc["$tl"]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
-			((times_tested++))
+			times_tested=$((times_tested+1))
 			#drawm "Testing speed" "$green"
 			if ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && not slowgoing; then
 				tl2=$tl
@@ -1504,17 +1504,17 @@ testspeed() { #? Using official Ookla speedtest client
 					tl2=$(random array_value testlista)
 				done
 				tl=$tl2
-				((tests++))
+				tests=$((tests+1))
 			elif ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && now slowgoing; then
-				((xl++))
+				xl=$((xl+1))
 				tl=${rndbkp[$xl]}
-				((tests++))
+				tests=$((tests+1))
 			else
 				tests=$((max_tests+1))
 			fi
 		
 		elif [[ $mode == "down" ]] && now slowerror; then
-			((err_retry++))
+			err_retry=$((err_retry+1))
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
