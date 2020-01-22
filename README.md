@@ -12,9 +12,9 @@ If slow speed (defined by user) is detected, then runs a number of download and 
 
 **bash** (v4.4 or later). Script functionality might brake with earlier versions  
 
-**[speedtest](https://www.speedtest.net/apps/cli)** Official speedtest client from Ookla, needs to be in path or defined in config
+**[Python 3](https://www.python.org/downloads)** Needed for speedtest-cli, grc and getIdle.  
 
-**[Python 3](https://www.python.org/downloads)** Needed for speedtest-cli and grc  
+**[speedtest](https://www.speedtest.net/apps/cli)** Official speedtest client from Ookla, needs to be in path or defined in config
 
 **[jq](https://stedolan.github.io/jq/)** Needed for json parsing  
 
@@ -26,14 +26,10 @@ If slow speed (defined by user) is detected, then runs a number of download and 
 Should not be installed globally since name conflicts with official client, version 2.1.2 included.  
 
 **[grc](https://github.com/garabik/grc)** For making text output in the UI pretty.  
-Slighty modified grcat from grc version 1.11.3 included  .
+Modified version of grcat included in the script.
+
+**getIdle** Python code included in script.
 
 ## Optionals
 
 **[mtr](https://github.com/traviscross/mtr)** Needed if you want to check routes to slow servers  
-
-## Included but optional
-
-**getIdle** Source and linux x86_64 binary included. Needs to be in script directory for idle reset functionality.  
-Compiling needs X11/extensions/scrnsaver.h from libXss, install libxss (libxss-dev on debian based systems).  
-Compile from script directory with `gcc -o getIdle src/getIdle.c -lXss -lX11`
