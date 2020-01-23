@@ -123,7 +123,6 @@ menuypos=1
 main_menu=""
 main_menu_len=0
 menu_status=0
-net_status=""
 proc_nd=""
 timer_menu=0
 #? Menu format "Text".<underline position>."color"
@@ -330,7 +329,7 @@ if [[ $displaypause == "true" ]]; then idle="false"; fi
 
 #? Start functions ------------------------------------------------------------------------------------------------------------------>
 
-arr_network_init() { #? Open SSH control master and get network devices if set to "auto", otherwise check that devices are valid
+network_init() { #? Open SSH control master and get network devices if set to "auto", otherwise check that devices are valid
 if [[ $net_device == "auto" ]]; then
 	net_device=$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
 else
@@ -350,7 +349,7 @@ if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
 	precheck_ssh="${precheck_ssh_user}@${precheck_ssh_host}"
 	if ! ping -qc1 -w5 "$precheck_ssh_host" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh\""; exit 1; fi
 	ssh_socket="$temp/spdtest.ssh_socket.$$"
-	ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
+	ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=1h' -S "$ssh_socket" "$precheck_ssh"
 	if ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then echo "Could not connect to remote machine \"$precheck_ssh\""; exit 1; fi
 	if [[ $precheck_ssh_nd == "auto" || -z $precheck_ssh_nd ]]; then
 		precheck_ssh_nd=$(ssh -S "$ssh_socket" "$precheck_ssh" 'ip route')
@@ -370,8 +369,6 @@ if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
 else
 	proc_nd="$net_device"
 fi
-
-net_status="$(</sys/class/net/"$net_device"/operstate)"
 }
 
 assasinate() { #? Silently kill running process if not already dead
@@ -1048,6 +1045,16 @@ inputwait() { #? Timer and input loop
 	assasinate "$secpid"
 }
 
+internet() {
+	if ping -qc1 -w5 1.1.1.1 > /dev/null 2>&1 || ping -qc1 -w5 8.8.8.8 > /dev/null 2>&1; then
+		if [[ $1 == "down" ]]; then return 1; fi
+		return 0
+	else
+		if [[ $1 == "down" ]]; then return 0; fi
+		return 1
+	fi
+}
+
 logrotate() { #? Rename logfile, compress and create new if size is over $logsize
 	if [[ -n $logname ]]; then
 		logfile="$logname"
@@ -1081,8 +1088,14 @@ monitor_on() { if ( xset q | grep -q "Monitor is On" ); then return 0; else retu
 
 myip() { curl -s ipinfo.io/ip; } #? Get public IP
 
-not() { #? Invert of now(), for readability in big if statements, usage: not "var1" ["var2"] ...
+not() { #? Multi function: Invert of now(), usage: not "var1" ["var2"] ...
+		#? can also be used to reverse return of function or program if first argument isn't a variable, usage: not "command" ["arg1"] ["arg2"] ...
 	if [[ -z $1 ]]; then return; fi
+
+	if [[ -z ${!1+x} ]]; then
+		if "$@" 2> /dev/null; then return 1; else return 0; fi
+	fi
+
 	if [[ "$#" -gt 1 ]]; then
 		local i x=0
 		for i in "$@"; do
@@ -1146,7 +1159,7 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 	drawm "Checking bandwidth usage" "$yellow"
 	if [[ -n $precheck_ssh ]] && ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then
 		writelog 8 "Disconnected from $precheck_ssh_host, reconnecting..."
-		ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=yes' -S "$ssh_socket" "$precheck_ssh"
+		ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=1h' -S "$ssh_socket" "$precheck_ssh"
 	fi
 	echo -en "Checking bandwidth usage: ${bold}$(progress 0)${reset}\r"
 	sndvald="$(getcspeed "down" 0 "get")"
@@ -1267,7 +1280,7 @@ reset() { #? Set variable was() state to current value, usage: reset "variable n
 }
 
 routetest() { #? Test routes with mtr
-	if not mtr || now broken; then return; fi
+	if not mtr || now broken || internet down; then return; fi
 	testing=1
 	unset 'routelistc[@]'
 	local i ttime tcount pcount prc secs dtext port
@@ -1323,6 +1336,8 @@ routetest() { #? Test routes with mtr
 
 running() { if kill -0 "$1" >/dev/null 2>&1; then return 0; else return 1; fi; } #? Returns true if process is running, usage: running "process pid"
 
+not_running() { if running "$1"; then return 1; else return 0; fi; } #? Returns true if process is NOT running, usage: not_running "process pid"
+
 tcount() { #? Run timer count and write to shared memory, meant to be run in background
 	local rsec lsec="$1"
 	echo "$lsec" > "$secfile"
@@ -1338,10 +1353,10 @@ tcount() { #? Run timer count and write to shared memory, meant to be run in bac
 
 test_type_checker() { #? Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
-		stype=$(echo "$speedstring" | jq -r '.type')
+		stype=$(echo "$speedstring" | jq -r '.type' 2> /dev/null)
 		if now broken; then stype="broken"; fi
 		if [[ $stype == "log" ]]; then slowerror=1; return; fi
-		if ! running "$speedpid"; then stype="ended"; fi
+		if not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
 }
 
 testspeed() { #? Using official Ookla speedtest client
@@ -1453,7 +1468,7 @@ testspeed() { #? Using official Ookla speedtest client
 		if now broken; then break; fi
 		wait $speedpid || true
 
-		if [[ $mode == "full" ]] && not slowerror; then
+		if [[ $mode == "full" && $stype == "result" ]] && not slowerror; then
 			sleep 0.1
 			speedstring=$(jq -c 'select(.type=="result")' $speedfile)
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth')
@@ -1488,6 +1503,7 @@ testspeed() { #? Using official Ookla speedtest client
 			warnings="ERROR: Couldn't test server!"
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
+			if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; return; fi
 			((++tests))
 		
 		elif [[ $mode == "down" ]] && not slowerror; then
@@ -1519,6 +1535,7 @@ testspeed() { #? Using official Ookla speedtest client
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
 			#drawm "Testing speed" "$green"
+			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; return; fi
 			if ((${#testlista[@]}>1 & err_retry<${#testlista[@]})); then
 				tl2=$tl
 				while contains "${errorlist[@]}" "$tl2"; do
@@ -1569,14 +1586,21 @@ toggle() { #? Toggle a variables true or false state
 }
 
 traperr() {
-	local err="${BASH_LINENO[0]}"
-	#if [[ $err =~ 1154|1151|1152 ]]; then return; fi
-	#err="${BASH_LINENO[0]}"
-	if [[ -z ${trace_array[0]} ]]; then echo -e "$(date +\(%x\))" >> misc/errors; fi
-	#if ! contains "${trace_array[@]}" "$err"; then
+	local match len trap_muted err="${BASH_LINENO[0]}"
+
+	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> misc/errors; fi
+	len=$((${#trace_array[@]}))
+	if ((len-->=1)); then
+		while ((len>=${#trace_array[@]}-2)); do		
+			if [[ $err == "${trace_array[$((len--))]}" ]]; then ((++match)) ; fi
+		done
+		if ((match==2 & len != -2)); then return
+		elif ((match>=1)); then trap_muted="(MUTED!)"
+		fi
+	fi
 	trace_array+=("$err")
-	echo "$(date +%X)  ERROR: On line ${BASH_LINENO[0]}" >> "misc/errors"
-	#fi
+	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "misc/errors"
+	
 }
 
 waiting() { #? Show animation and text while waiting for background job, arguments: <pid> <"text">
@@ -1692,7 +1716,7 @@ z__pre_main() { echo -n; }
 
 trap ctrl_c INT
 
-arr_network_init
+network_init
 
 if not mtr; then mtr_internal="false"; mtr_internal_ok="false"; fi
 
@@ -1752,7 +1776,7 @@ if  now displaypause && monitor_on; then paused="true"
 elif now displaypause && ! monitor_on; then paused="false"
 fi
 
-if not paused && now startuptest && [[ $net_status == "up" ]]; then
+if not paused && now startuptest && internet up; then
 	testspeed "down"
 	if ((lastspeed<=slowspeed)) && not slowerror; then startupdetect=1; fi
 fi
@@ -1771,8 +1795,7 @@ z_main_loop() {
 		inputwait "$waittime"
 	fi
 
-	net_status="$(</sys/class/net/"$net_device"/operstate)"
-	if [[ $net_status != "up" ]]; then writelog 1 "Interface $net_device is down! ($(date +%H:%M))"; return; fi	
+	if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests! ($(date +%H:%M))"; return; fi	
 
 	if not idlebreak; then
 		logrotate
