@@ -1341,12 +1341,12 @@ not_running() { if running "$1"; then return 1; else return 0; fi; } #? Returns 
 tcount() { #? Run timer count and write to shared memory, meant to be run in background
 	local rsec lsec="$1"
 	echo "$lsec" > "$secfile"
-	local secbkp=$((lsec + 1))
-	while [[ $lsec -gt 0 ]]; do
+	local secbkp=$((lsec+1))
+	while ((lsec>0)); do
 		rsec=$(date +%s)
-		while [[ $rsec -eq $(date +%s) ]]; do sleep 0.25; done
-		if [[ $idle == "true" ]] && [[ $(getIdle) -lt 1 ]]; then lsec=$secbkp; fi
-		lsec=$((lsec - 1))
+		while (( rsec==$(date +%s) )); do sleep 0.25; done
+		if now idle && (($(getIdle)<1)); then lsec=$secbkp; fi
+		((lsec--))
 		echo "$lsec" > "$secfile"
 	done
 }
