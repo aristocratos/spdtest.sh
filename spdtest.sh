@@ -29,7 +29,7 @@ aa_variables() { echo -n; }
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
 unit="mbit"				#* Valid values are "mbit" and "mbyte"
 slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
-numservers="30"			#* How many of the closest servers to get from "speedtest-cli --list", used as random pool of servers to test against
+numservers="30"			#* How many of the closest servers to get from speedtest.net, used as random pool of servers to test against
 slowretry="1"			#* When speed is below slowspeed, how many retries of random servers before running full tests
 numslowservers="8"		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
 precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
@@ -73,18 +73,17 @@ testnum=1				#* Number of times to loop full tests in testonly mode
 trace_errors="true" #? Remove!
 
 ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
-speedtest_cli="speedtest-cli/speedtest.py"		#* Path to unofficial speedtest-cli
 spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
 
 #! Variables below are for internal function, don't change unless you know what you are doing
-if [[ ! -w /dev/shm ]]; then echo "ERROR: Can't write to /dev/shm"; exit 1 ; fi
-temp="/dev/shm"
+if [[ -w /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp" ; fi
 secfile="${temp}/spdtest-sec.$$"
 speedfile="${temp}/spdtest-speed.$$"
 routefile="${temp}/spdtest-route.$$"
 tmpout="${temp}/spdtest-tmpout.$$"
 bufferfile="${temp}/spdtest-buffer.$$"
-grc_import="grc_import$$"
+#grc_import="grc_import$$"
+declare -x colorize_input
 grc_err=0
 getIdle_err=0
 if [[ -z $DISPLAY ]]; then declare -x DISPLAY=":0"; fi
@@ -191,12 +190,147 @@ bgl="${reset}${dark}┤${reset}${bold}"
 bgls="${reset}${dark}─┤${reset}${bold}"
 bgs="${reset}${dark}─${reset}${bold}"
 
+declare -x colorize_config #? Settings for colorize function, standard grc config formatting
+read -r -d '' colorize_config <<'EOF'
+# Color settings for colorize
+#mtr
+# 0 Full Line | 1 Loss | 2 Snt | 3 Last | 4 Avg | 5 Best | 6 Worst | 7 stDev
+regexp=(\d+\.\d%)\s+(\d+)\s+(\d+\.\d)\s+(\d+\.\d)\s+(\d+\.\d)\s+(\d+\.\d)\s+(\d+\.\d)$
+colours=unchanged,yellow,unchanged,unchanged,blue,green,red,unchanged
+=======
+# unknow host
+regexp=\?\?\?
+colours=red
+=======
+# Packets/Pings
+regexp=(Packets|Pings)
+colours=bold green
+=======
+# spdtest.sh
+# error text
+regexp=(ERROR:).*($)
+colours=bold white
+count=more
+======
+# error red
+regexp=(ERROR:)
+colours=bold red
+count=more
+======
+# warning text
+regexp=(WARNING:).*($)
+colours=bold white
+count=more
+======
+# warning yellow
+regexp=(WARNING:)
+colours=bold yellow
+count=more
+======
+# info text
+regexp=(INFO:).*($)
+colours=bold white
+count=more
+======
+# info green
+regexp=(INFO:)
+colours=bold green
+count=more
+======
+# everything in parentheses
+regexp=\(.+?\)
+colours=bold green
+count=more
+======
+# everything in < >
+regexp=\<.+?\>
+colours=bold yellow
+count=more
+======
+# slow speed arrows
+regexp=(<-*)Slow speed detected!(-*>)
+colours=bold red
+count=more
+======
+# slow speed text
+regexp=(Slow speed detected!)
+colours=bold white
+count=more
+======
+# normal speed arrows
+regexp=(<-*)Speeds normal!(-*>)
+colours=bold green
+count=more
+======
+# normal speed text
+regexp=(Speeds normal!)
+colours=bold white
+count=more
+======
+# ip number
+regexp=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}
+colours=bold green
+count=more
+======
+# ok green
+regexp=(OK!)
+colours=bold green
+count=more
+======
+# fail red
+regexp=(FAIL!)
+colours=bold red
+count=more
+======
+# mbps mb/s
+regexp=(\d*\s+)(Mbps|MB\/s)
+colours=bold white
+count=more
+======
+# progress start
+regexp=(\[=*)
+colours=bold white
+count=more
+======
+# progress end
+regexp=(=*\])
+colours=bold white
+count=more
+======
+# column titles
+regexp=(Down).*(Server)
+colours=bold white
+count=more
+======
+# Arrow and text
+regexp=(<--).*(\d)
+colours=bold white
+count=more
+======
+# DOWN=
+regexp=(DOWN=)
+colours=bold green
+count=more
+======
+# UP=
+regexp=(UP=)
+colours=bold red
+count=more
+======
+# Less title
+regexp=(Viewing).*(= Help)
+colours=bold white
+count=more
+EOF
 
 #? End variables -------------------------------------------------------------------------------------------------------------------->
 
-command -v $ookla_speedtest >/dev/null 2>&1 || { echo "Error Ookla speedtest client not found"; exit 1; }
-command -v $speedtest_cli >/dev/null 2>&1 || { echo "Error speedtest-cli missing"; exit 1; }
-command -v mtr >/dev/null 2>&1 || mtr="false"
+if [[ -z $ookla_speedtest ]]; then ookla_speedtest="speedtest"; fi
+if [[ ! $(speedtest -V | head -n1) =~ "Speedtest by Ookla" ]]; then
+	echo "ERROR: Ookla speedtest client not found!"; exit 1
+fi
+
+if ! command -v mtr >/dev/null 2>&1; then mtr="false"; fi
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
 argumenterror() { #? Handles argument errors
@@ -395,6 +529,8 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 	local buffout scrtext y x
 	bufflen=$(wc -l <"$bufferfile")
 
+	old scrolled save
+
 	if [[ $1 == "add" && -n $2 ]]; then
 		local addlen addline buffer
 		scrolled=0
@@ -433,6 +569,8 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		return
 	fi
 
+	if old scrolled same && [[ $1 != "redraw" ]]; then return; fi
+
 	buffout="$(buffline)"
 	tput cup $buffpos 0; tput ed
 	echo -e "$buffout"
@@ -454,52 +592,22 @@ bury() { #? Silently remove files
 }
 
 colorize() { #? Make the text pretty using a slightly modified version of grc
-	declare input=${1:-$(</dev/stdin)}
-	if [[ -z $input ]]; then return; fi
+	declare colorize_input=${1:-$(</dev/stdin)}
+	if [[ -z $colorize_input ]]; then return; fi
 	if ((grc_err>=10)); then echo -e "$input"; return; fi
-	eval declare -x "$grc_import"='$input'
-
 python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
 from __future__ import print_function
-
 import sys, os, string, re, signal, errno, io
-
-colours = {
-			'none'       :    "",
-			'default'    :    "\033[0m",
-			'bold'       :    "\033[1m",
-			'underline'  :    "\033[4m",
-			'blink'      :    "\033[5m",
-			'reverse'    :    "\033[7m",
-			'concealed'  :    "\033[8m",
-
-			'black'      :    "\033[30m", 
-			'red'        :    "\033[31m",
-			'green'      :    "\033[32m",
-			'yellow'     :    "\033[33m",
-			'blue'       :    "\033[34m",
-			'magenta'    :    "\033[35m",
-			'cyan'       :    "\033[36m",
-			'white'      :    "\033[37m",
-
-			'previous'   :    "prev",
-			'unchanged'  :    "unchanged",
-
-			'dark'         :    "\033[2m",
-			'italic'       :    "\033[3m",
-			'rapidblink'   :    "\033[6m",
-			'strikethrough':    "\033[9m",
-			}
-
+colours = {'none':"", 'default':"\033[0m", 'bold':"\033[1m", 'underline':"\033[4m", 'blink':"\033[5m", 'reverse':"\033[7m", 'concealed':"\033[8m",
+			'black':"\033[30m",  'red':"\033[31m", 'green':"\033[32m", 'yellow':"\033[33m", 'blue':"\033[34m", 'magenta':"\033[35m", 'cyan':"\033[36m", 'white':"\033[37m",
+			'previous':"prev", 'unchanged':"unchanged", 'dark':"\033[2m", 'italic':"\033[3m", 'rapidblink':"\033[6m", 'strikethrough':"\033[9m",}
 signal.signal(signal.SIGINT, signal.SIG_IGN)
-
 def add2list(clist, m, patterncolour):
 	for group in range(0, len(m.groups()) +1):
 		if group < len(patterncolour):
 			clist.append((m.start(group), m.end(group), patterncolour[group]))
 		else:
 			clist.append((m.start(group), m.end(group), patterncolour[0]))
-
 def get_colour(x):
 	if x in colours:
 		return colours[x]
@@ -507,21 +615,9 @@ def get_colour(x):
 		return eval(x)
 	else:
 		raise ValueError('Bad colour specified: '+x)
-
-# conffile = os.environ.get('spdtest_grcconf')
-conffile = "$spdtest_grcconf"
-
-if not conffile:
-	sys.exit(1)
-
 regexplist = []
-
-try:
-	f = open(conffile, "r")
-except IOError:
-	sys.stderr.write('Could not open grc config\n')
-	sys.exit(1)
-	
+conffile = os.environ.get('colorize_config')
+f = io.StringIO(conffile)
 is_last = 0
 split = str.split
 lower = str.lower
@@ -549,21 +645,16 @@ while not is_last:
 			raise ValueError("Invalid keyword")
 		ll[keyword] = value
 	if 'colours' in ll:
-		colstrings = list(
-						[''.join([get_colour(x) for x in split(colgroup)]) for colgroup in split(ll['colours'], ',')]
-						)
+		colstrings = list([''.join([get_colour(x) for x in split(colgroup)]) for colgroup in split(ll['colours'], ',')])
 		ll['colours'] = colstrings
-
 	cs = ll['count']
 	if 'regexp' in ll:
 		ll['regexp'] = re.compile(ll['regexp']).search
 		regexplist.append(ll)
-
 prevcolour = colours['default']
 prevcount = "more"
 blockflag = 0
-
-inputvar = os.environ.get('$grc_import')
+inputvar = os.environ.get('colorize_input')
 inputstring = io.StringIO(inputvar)
 while 1:
 	line = inputstring.readline()
@@ -663,7 +754,6 @@ while 1:
 			else:
 				raise
 EOF
-
 	grc_err=$((grc_err+$?))
 	if [[ $grc_err -ne 0 ]]; then echo -e "$input"; fi
 }
@@ -688,9 +778,9 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 		return
 	else
 		assasinate "$secpid" "$routepid" "$speedpid"
-		bury "$secfile" "$speedfile" "$routefile" $tmpout
-		if now $buffer_save && [[ -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
-		bury $bufferfile
+		bury "$secfile" "$speedfile" "$routefile" "$tmpout"
+		if now buffer_save && [[ -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
+		bury "$bufferfile"
 		if [[ -n $precheck_ssh ]] && ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then ssh -S "$ssh_socket" -O exit "$precheck_ssh" >/dev/null 2>&1; fi
 		tput clear; tput cvvis; stty echo; tput rmcup
 		exit 0
@@ -862,7 +952,8 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	unset 'testlistdesc[@]'
 	unset 'routelista[@]'
 	unset 'routelistadesc[@]'
-	local IFS=$'\n'
+	local num IFS=$'\n'
+	num=1
 
 	if [[ $quiet_start = "true" && $loglevel -ge 3 ]]; then bkploglevel=$loglevel; loglevel=103
 	elif [[ $quiet_start = "true" && $loglevel -lt 3 ]]; then bkploglevel=$loglevel; loglevel=1000; fi
@@ -870,19 +961,17 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	if [[ -e $servercfg && $servercfg != "/dev/null" && $updateservers = 0 ]]; then
 		source "$servercfg"
 		writelog 3 "\nUsing servers from $servercfg"
-		local num=1
 		for tl in "${testlista[@]}"; do
 			writelog 3 "$num. ${testlistdesc["$tl"]}"
 			((++num))
 		done
 	else
 		echo "#? Automatically generated server list, servers won't be refreshed at start if this file exists" >> "$servercfg"
-		$speedtest_cli --list  > $tmpout &
+		getservers_cli "$numservers" > $tmpout &
 		waiting $! "Fetching servers"; tput el
-		speedlist=$(head -$((numservers+1)) "$tmpout" | sed 1d)
+		speedlist=$(<"$tmpout")
 		true > "$tmpout"
 		writelog 3 "Using servers:         "
-		local num=1
 		for line in $speedlist; do
 			servnum=${line:0:5}
 			servnum=${servnum%)}
@@ -899,7 +988,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	fi
 	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
 	numslowservers=${numslowservers:-$((num-1))}
-	writelog 3 "\n"
+	writelog 3 "\n "
 	if [[ -e route.cfg.sh && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
 		# shellcheck disable=SC1091
 		source route.cfg.sh
@@ -912,6 +1001,356 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	fi
 
 	if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
+}
+
+getservers_cli() { #? Modified and heavly compacted version of speedtest-cli, unmodified source at https://github.com/sivel/speedtest-cli
+						#? Only used to fetch serverlist in order of closest server, usage: getserver_cli [number of servers]
+						#? APACHE LICENSE v2.0 https://www.apache.org/licenses/LICENSE-2.0
+local num="${1:-0}"
+python3 - << EOF
+# -*- coding: utf-8 -*-
+import os, re, sys, math, errno, signal, socket, timeit, datetime, platform, threading, gzip
+GZIP_BASE = gzip.GzipFile
+__version__ = '2.1.2'
+class FakeShutdownEvent(object):
+	@staticmethod
+	def isSet():
+		return False
+DEBUG = False
+_GLOBAL_DEFAULT_TIMEOUT = object()
+import xml.etree.ElementTree as ET
+from urllib.request import urlopen, Request, HTTPError, URLError, AbstractHTTPHandler, ProxyHandler, HTTPDefaultErrorHandler, HTTPRedirectHandler, HTTPErrorProcessor, OpenerDirector
+from http.client import HTTPConnection, BadStatusLine, HTTPSConnection
+FakeSocket = None
+from queue import Queue
+from urllib.parse import parse_qs, urlparse
+from hashlib import md5
+from optparse import OptionParser as ArgParser, SUPPRESS_HELP as ARG_SUPPRESS
+PARSER_TYPE_INT = 'int'
+PARSER_TYPE_STR = 'string'
+PARSER_TYPE_FLOAT = 'float'
+from io import StringIO, BytesIO
+from xml.dom import minidom as DOM
+from xml.parsers.expat import ExpatError
+etree_iter = ET.Element.iter
+import ssl
+CERT_ERROR = (ssl.CertificateError,)
+HTTP_ERRORS = ((HTTPError, URLError, socket.error, ssl.SSLError, BadStatusLine) + CERT_ERROR)
+class SpeedtestException(Exception):
+	"""Base exception for this module"""
+class SpeedtestHTTPError(SpeedtestException):
+	"""Base HTTP exception for this module"""
+class SpeedtestConfigError(SpeedtestException):
+	"""Configuration XML is invalid"""
+class SpeedtestServersError(SpeedtestException):
+	"""Servers XML is invalid"""
+class ConfigRetrievalError(SpeedtestHTTPError):
+	"""Could not retrieve config.php"""
+class ServersRetrievalError(SpeedtestHTTPError):
+	"""Could not retrieve speedtest-servers.php"""
+class InvalidServerIDType(SpeedtestException):
+	"""Server ID used for filtering was not an integer"""
+class NoMatchedServers(SpeedtestException):
+	"""No servers matched when filtering"""
+class SpeedtestHTTPConnection(HTTPConnection):
+	def __init__(self, *args, **kwargs):
+		source_address = kwargs.pop('source_address', None)
+		timeout = kwargs.pop('timeout', 10)
+		HTTPConnection.__init__(self, *args, **kwargs)
+		self.source_address = source_address
+		self.timeout = timeout
+	def connect(self):
+		self.sock = socket.create_connection((self.host, self.port), self.timeout, self.source_address)
+if HTTPSConnection:
+	class SpeedtestHTTPSConnection(HTTPSConnection):
+		default_port = 443
+		def __init__(self, *args, **kwargs):
+			source_address = kwargs.pop('source_address', None)
+			timeout = kwargs.pop('timeout', 10)
+			self._tunnel_host = None
+			HTTPSConnection.__init__(self, *args, **kwargs)
+			self.timeout = timeout
+			self.source_address = source_address
+		def connect(self):
+			"Connect to a host on a given (SSL) port."
+			self.sock = socket.create_connection((self.host, self.port), self.timeout, self.source_address)
+			if ssl:
+				try:
+					kwargs = {}
+					if hasattr(ssl, 'SSLContext'):
+						if self._tunnel_host:
+							kwargs['server_hostname'] = self._tunnel_host
+						else:
+							kwargs['server_hostname'] = self.host
+					self.sock = self._context.wrap_socket(self.sock, **kwargs)
+				except AttributeError:
+					self.sock = ssl.wrap_socket(self.sock)
+					try:
+						self.sock.server_hostname = self.host
+					except AttributeError:
+						pass
+def _build_connection(connection, source_address, timeout, context=None):
+	def inner(host, **kwargs):
+		kwargs.update({'source_address': source_address, 'timeout': timeout})
+		if context:
+			kwargs['context'] = context
+		return connection(host, **kwargs)
+	return inner
+class SpeedtestHTTPHandler(AbstractHTTPHandler):
+	def __init__(self, debuglevel=0, source_address=None, timeout=10):
+		AbstractHTTPHandler.__init__(self, debuglevel)
+		self.source_address = source_address
+		self.timeout = timeout
+	def http_open(self, req):
+		return self.do_open(
+			_build_connection(SpeedtestHTTPConnection, self.source_address, self.timeout), req)
+	http_request = AbstractHTTPHandler.do_request_
+class SpeedtestHTTPSHandler(AbstractHTTPHandler):
+	def __init__(self, debuglevel=0, context=None, source_address=None, timeout=10):
+		AbstractHTTPHandler.__init__(self, debuglevel)
+		self._context = context
+		self.source_address = source_address
+		self.timeout = timeout
+	def https_open(self, req):
+		return self.do_open(
+			_build_connection(SpeedtestHTTPSConnection, self.source_address, self.timeout, context=self._context,), req)
+	https_request = AbstractHTTPHandler.do_request_
+def build_opener(source_address=None, timeout=10):
+	if source_address:
+		source_address_tuple = (source_address, 0)
+	else:
+		source_address_tuple = None
+	handlers = [ProxyHandler(), SpeedtestHTTPHandler(source_address=source_address_tuple, timeout=timeout), SpeedtestHTTPSHandler(source_address=source_address_tuple, timeout=timeout), HTTPDefaultErrorHandler(), HTTPRedirectHandler(), HTTPErrorProcessor()]
+	opener = OpenerDirector()
+	opener.addheaders = [('User-agent', build_user_agent())]
+	for handler in handlers:
+		opener.add_handler(handler)
+	return opener
+class GzipDecodedResponse(GZIP_BASE):
+	def __init__(self, response):
+		IO = BytesIO or StringIO
+		self.io = IO()
+		while 1:
+			chunk = response.read(1024)
+			if len(chunk) == 0:
+				break
+			self.io.write(chunk)
+		self.io.seek(0)
+		gzip.GzipFile.__init__(self, mode='rb', fileobj=self.io)
+	def close(self):
+		try:
+			gzip.GzipFile.close(self)
+		finally:
+			self.io.close()
+def get_exception():
+	return sys.exc_info()[1]
+def distance(origin, destination):
+	lat1, lon1 = origin
+	lat2, lon2 = destination
+	radius = 6371  # km
+	dlat = math.radians(lat2 - lat1)
+	dlon = math.radians(lon2 - lon1)
+	a = (math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) * math.sin(dlon / 2))
+	c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+	d = radius * c
+	return d
+def build_user_agent():
+	ua_tuple = ('Mozilla/5.0', '(%s; U; %s; en-us)' % (platform.platform(), platform.architecture()[0]), 'Python/%s' % platform.python_version(), '(KHTML, like Gecko)', 'speedtest-cli/%s' % __version__)
+	user_agent = ' '.join(ua_tuple)
+	return user_agent
+def build_request(url, data=None, headers=None, bump='0', secure=False):
+	if not headers:
+		headers = {}
+	if url[0] == ':':
+		scheme = ('http', 'https')[bool(secure)]
+		schemed_url = '%s%s' % (scheme, url)
+	else:
+		schemed_url = url
+	if '?' in url:
+		delim = '&'
+	else:
+		delim = '?'
+	final_url = '%s%sx=%s.%s' % (schemed_url, delim, int(timeit.time.time() * 1000), bump)
+	headers.update({'Cache-Control': 'no-cache',})
+	return Request(final_url, data=data, headers=headers)
+def catch_request(request, opener=None):
+	if opener:
+		_open = opener.open
+	else:
+		_open = urlopen
+	try:
+		uh = _open(request)
+		return uh, False
+	except HTTP_ERRORS:
+		e = get_exception()
+		return None, e
+def get_response_stream(response):
+	try:
+		getheader = response.headers.getheader
+	except AttributeError:
+		getheader = response.getheader
+	if getheader('content-encoding') == 'gzip':
+		return GzipDecodedResponse(response)
+	return response
+class Speedtest(object):
+	def __init__(self, config=None, source_address=None, timeout=10, secure=False, shutdown_event=None):
+		self.config = {}
+		self._source_address = source_address
+		self._timeout = timeout
+		self._opener = build_opener(source_address, timeout)
+		self._secure = secure
+		if shutdown_event:
+			self._shutdown_event = shutdown_event
+		else:
+			self._shutdown_event = FakeShutdownEvent()
+		self.get_config()
+		if config is not None:
+			self.config.update(config)
+		self.servers = {}
+		self.closest = []
+		self._best = {}
+	def get_config(self):
+		headers = {}
+		if gzip:
+			headers['Accept-Encoding'] = 'gzip'
+		request = build_request('://www.speedtest.net/speedtest-config.php', headers=headers, secure=self._secure)
+		uh, e = catch_request(request, opener=self._opener)
+		if e:
+			raise ConfigRetrievalError(e)
+		configxml_list = []
+		stream = get_response_stream(uh)
+		while 1:
+			try:
+				configxml_list.append(stream.read(1024))
+			except (OSError, EOFError):
+				raise ConfigRetrievalError(get_exception())
+			if len(configxml_list[-1]) == 0:
+				break
+		stream.close()
+		uh.close()
+		if int(uh.code) != 200:
+			return None
+		configxml = ''.encode().join(configxml_list)
+		try:
+			root = ET.fromstring(configxml)
+		except ET.ParseError:
+			e = get_exception()
+			raise SpeedtestConfigError(
+				'Malformed speedtest.net configuration: %s' % e)
+		server_config = root.find('server-config').attrib
+		download = root.find('download').attrib
+		upload = root.find('upload').attrib
+		# times = root.find('times').attrib
+		client = root.find('client').attrib
+		ignore_servers = list(map(int, server_config['ignoreids'].split(',')))
+		ratio = int(upload['ratio'])
+		upload_max = int(upload['maxchunkcount'])
+		up_sizes = [32768, 65536, 131072, 262144, 524288, 1048576, 7340032]
+		sizes = {'upload': up_sizes[ratio - 1:], 'download': [350, 500, 750, 1000, 1500, 2000, 2500, 3000, 3500, 4000]}
+		size_count = len(sizes['upload'])
+		upload_count = int(math.ceil(upload_max / size_count))
+		counts = {'upload': upload_count, 'download': int(download['threadsperurl'])}
+		threads = {'upload': int(upload['threads']), 'download': int(server_config['threadcount']) * 2}
+		length = {'upload': int(upload['testlength']), 'download': int(download['testlength'])}
+		self.config.update({'client': client, 'ignore_servers': ignore_servers, 'sizes': sizes, 'counts': counts, 'threads': threads, 'length': length, 'upload_max': upload_count * size_count})
+		try:
+			self.lat_lon = (float(client['lat']), float(client['lon']))
+		except ValueError:
+			raise SpeedtestConfigError('Unknown location: lat=%r lon=%r' % (client.get('lat'), client.get('lon')))
+		return self.config
+	def get_servers(self, servers=None, exclude=None):
+		if servers is None:
+			servers = []
+		if exclude is None:
+			exclude = []
+		self.servers.clear()
+		for server_list in (servers, exclude):
+			for i, s in enumerate(server_list):
+				try:
+					server_list[i] = int(s)
+				except ValueError:
+					raise InvalidServerIDType('%s is an invalid server type, must be int' % s)
+		urls = ['://www.speedtest.net/speedtest-servers-static.php', 'http://c.speedtest.net/speedtest-servers-static.php', '://www.speedtest.net/speedtest-servers.php', 'http://c.speedtest.net/speedtest-servers.php',]
+		headers = {}
+		if gzip:
+			headers['Accept-Encoding'] = 'gzip'
+		errors = []
+		for url in urls:
+			try:
+				request = build_request(
+					'%s?threads=%s' % (url, self.config['threads']['download']), headers=headers, secure=self._secure)
+				uh, e = catch_request(request, opener=self._opener)
+				if e:
+					errors.append('%s' % e)
+					raise ServersRetrievalError()
+				stream = get_response_stream(uh)
+				serversxml_list = []
+				while 1:
+					try:
+						serversxml_list.append(stream.read(1024))
+					except (OSError, EOFError):
+						raise ServersRetrievalError(get_exception())
+					if len(serversxml_list[-1]) == 0:
+						break
+				stream.close()
+				uh.close()
+				if int(uh.code) != 200:
+					raise ServersRetrievalError()
+				serversxml = ''.encode().join(serversxml_list)
+				try:
+					root = ET.fromstring(serversxml)
+				except ET.ParseError:
+					e = get_exception()
+					raise SpeedtestServersError('Malformed speedtest.net server list: %s' % e)
+				elements = etree_iter(root, 'server')
+				for server in elements:
+					try:
+						attrib = server.attrib
+					except AttributeError:
+						attrib = dict(list(server.attributes.items()))
+					if servers and int(attrib.get('id')) not in servers:
+						continue
+					if (int(attrib.get('id')) in self.config['ignore_servers']
+							or int(attrib.get('id')) in exclude):
+						continue
+					try:
+						d = distance(self.lat_lon, (float(attrib.get('lat')), float(attrib.get('lon'))))
+					except Exception:
+						continue
+					attrib['d'] = d
+					try:
+						self.servers[d].append(attrib)
+					except KeyError:
+						self.servers[d] = [attrib]
+				break
+			except ServersRetrievalError:
+				continue
+		if (servers or exclude) and not self.servers:
+			raise NoMatchedServers()
+		return self.servers
+speedtest = Speedtest()
+try:
+	speedtest.get_servers()
+except (ServersRetrievalError,) + HTTP_ERRORS:
+	print('Cannot retrieve speedtest server list')
+	sys.exit(1)
+count = 1
+for _, servers in sorted(speedtest.servers.items()):
+	for server in servers:
+		line = ('%(id)5s) %(sponsor)s (%(name)s, %(country)s) ''[%(d)0.2f km]' % server)
+		try:
+			print(line)
+		except IOError:
+			e = get_exception()
+			if e.errno != errno.EPIPE:
+				raise
+		if count == $num :
+			break
+		count += 1
+	else:
+		continue
+	break
+EOF
 }
 
 inputwait() { #? Timer and input loop
@@ -999,7 +1438,7 @@ inputwait() { #? Timer and input loop
 					toggle timer_menu
 					old pausetoggled save; old menu_status save
 					if not paused; then toggle pausetoggled; else gen_menu; fi
-					if ! menu; then menu toggle; else drawm; fi
+					if not menu; then menu toggle; else drawm; fi
 					;;
 				m|M) menu toggle ;;
 				f|F) forcetest=1; break ;;
@@ -1020,7 +1459,7 @@ inputwait() { #? Timer and input loop
 			assasinate "$secpid"
 			gen_menu
 			drawm
-		elif (now paused && not pausetoggled) || (now paused displaypause && not pausetoggled && ! monitor_on); then
+		elif (now paused && not pausetoggled) || (now paused displaypause && not pausetoggled && not monitor_on); then
 			paused="false"
 			tcount $secs &
 			secpid="$!"
@@ -1060,11 +1499,11 @@ logrotate() { #? Rename logfile, compress and create new if size is over $logsiz
 		logfile="$logname"
 	else
 		logfile="log/spdtest.log"
-		if [[ $loglevel == 0 ]]; then return; fi
+		if ((loglevel==0)); then return; fi
 		if [[ ! -d log ]]; then mkdir log; fi
 		touch $logfile
 		logsize=$(du $logfile | tr -s '\t' ' ' | cut -d' ' -f1)
-		if [[ $logsize -gt $maxlogsize ]]; then
+		if ((logsize>maxlogsize)); then
 			ts=$(date +%y-%m-%d-T:%H:%M)
 			mv $logfile "log/spdtest.$ts.log"
 			touch $logfile
@@ -1084,7 +1523,7 @@ menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: togg
 	drawm
 }
 
-monitor_on() { if ( xset q | grep -q "Monitor is On" ); then return 0; else return 1; fi; } #? Check if display is on with xset
+monitor_on() { if [[ $(xset -q) =~ "Monitor is On" ]]; then return 0; else return 1; fi; } #? Check if display is on with xset
 
 myip() { curl -s ipinfo.io/ip; } #? Get public IP
 
@@ -1238,16 +1677,19 @@ progress() { #? Print progress bar, arguments: <percent> [<"text">] [<text color
 	echo -n "]"
 }
 
-random() { #? Random (number[s])(number[s] in array)(value[s] in array) generator, arguments: (int "start"-"end" ["amount"])/(array_int)/(array_value)
+random() { #? Random/shuffle (number[s]) or (number[s] in array) or (value[s] in array) generator
 	local x=${3:-1}
 
-	if [[ $1 == int && -n $2 ]]; then #? Random number[s] generator, usage: random int "start"-"end" ["amount"]
+	if [[ $1 == int && -n $2 ]]; then #? Random number[s], usage: random int "start-end" ["amount"]
+		if [[ ! $2 =~ "-" ]]; then return; fi
+		if ((${2%-*}>=${2#*-})); then return; fi
+		if ((x>${2#*-}-${2%-*})); then x=$((${2#*-}-${2%-*})); fi
 		echo -n "$(shuf -i "$2" -n "$x" $rnd_src)"
 
 	elif [[ $1 == array_int && -n $2 ]]; then #? Random number[s] between 0 and array size, usage: random array_int "arrayname" ["amount"] ; use "*" as amount for all in random order
 		#shellcheck disable=SC2016
 		local arr_int='${#'"$2"'[@]}'; eval arr_int="$arr_int"
-		if [[ $x == "*" ]]; then x=$arr_int; fi
+		if [[ $x == "*" ]] || ((x>arr_int)); then x=$arr_int; fi
 		echo -n "$(shuf -i 0-$((arr_int-1)) -n "$x" $rnd_src)"
 
 	elif [[ $1 == array_value && -n $2 ]]; then  #? Random value[s] from array, usage: random array_value "arrayname" ["amount"] ; use "*" as amount for all in random order
@@ -1323,10 +1765,9 @@ routetest() { #? Test routes with mtr
 			if now broken; then break; fi
 			writelog 1 "$(tail -n+2 <$routefile)\n"
 
-			#drawm
 		else
 			echo "ERROR: Host not reachable!" | writelog 1
-			#drawm
+
 		fi
 		done
 		writelog 1 " "
@@ -1343,7 +1784,7 @@ tcount() { #? Run timer count and write to shared memory, meant to be run in bac
 	echo "$lsec" > "$secfile"
 	local secbkp=$((lsec+1))
 	while ((lsec>0)); do
-		rsec=$(date +%s)
+		rsec=$(date +%s || sleep 1)
 		while (( rsec==$(date +%s) )); do sleep 0.25; done
 		if now idle && (($(getIdle)<1)); then lsec=$secbkp; fi
 		((lsec--))
@@ -1370,14 +1811,14 @@ testspeed() { #? Using official Ookla speedtest client
 	unset 'routelistb[@]'
 	testing=1
 
-	if [[ $mode == "full" && $numslowservers -ge ${#testlista[@]} ]]; then max_tests=$((${#testlista[@]}-1))
-	elif [[ $mode == "full" && $numslowservers -lt ${#testlista[@]} ]]; then max_tests=$((numslowservers-1))
+	if [[ $mode == "full" ]] && ((numslowservers>=${#testlista[@]})); then max_tests=$((${#testlista[@]}-1))
+	elif [[ $mode == "full" ]] && ((numslowservers<${#testlista[@]})); then max_tests=$((numslowservers-1))
 	elif [[ $mode == "down" ]]; then
 
 		max_tests=$slowretry
-		if [[ ${#testlista[@]} -gt 1 ]] && not slowgoing; then
+		if ((${#testlista[@]}>1)) && not slowgoing; then
 			tl=$(random array_value testlista)
-		elif [[ ${#testlista[@]} -gt 1 ]] && now slowgoing; then
+		elif ((${#testlista[@]}>1)) && now slowgoing; then
 			rnum=${rndbkp[$xl]}
 			tl=${testlista[$rnum]}
 		else
@@ -1386,7 +1827,7 @@ testspeed() { #? Using official Ookla speedtest client
 		fi
 	fi
 
-	while [[ $tests -le $max_tests ]]; do #? Test loop start ------------------------------------------------------------------------------------>
+	while ((tests<=max_tests)); do #? Test loop start ------------------------------------------------------------------------------------>
 		if [[ $mode == "full" ]]; then
 			if not slowgoing forcetest testonly; then
 				writelog 1 "\n<---------------------------------------Slow speed detected!---------------------------------------->"
@@ -1403,7 +1844,7 @@ testspeed() { #? Using official Ookla speedtest client
 			routeadd=0
 
 		elif [[ $mode == "down" ]]; then
-			if [[ $tests -ge 1 ]]; then numstat="<-- Attempt $((tests+1))"; else numstat=""; fi
+			if ((tests>=1)); then numstat="<-- Attempt $((tests+1))"; else numstat=""; fi
 			printf "\r%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress 0 "Init")" " ${testlistdesc["$tl"]} $numstat"| writelog 9
 			tput cuu1; drawm "Testing speed" "$green"
 		fi
@@ -1417,7 +1858,7 @@ testspeed() { #? Using official Ookla speedtest client
 		while [[ $stype == ""  || $stype =~ null|testStart|ping ]]; do
 			test_type_checker
 			if [[ $stype == "ping" ]]; then server_ping=$(echo "$speedstring" | jq '.ping.latency'); server_ping=${server_ping%.*}; fi
-			if [[ $x -eq 10 ]]; then
+			if ((x==10)); then
 				ax_anim 1
 				if [[ $mode == "full" ]]; then printf "\r${bold}%-12s${reset}%-12s%-8s${bold}%16s${reset}" "     " "" "  " "$(progress 0 "Init $animout")    "
 				elif [[ $mode == "down" ]]; then printf "\r${bold}%5s%-4s%14s\t${reset}" "$down_speed " "$unit" "$(progress 0 "Init $animout")"
@@ -1434,7 +1875,7 @@ testspeed() { #? Using official Ookla speedtest client
 		done
 
 		while [[ $stype == "download" ]]; do
-			down_speed=$(echo "$speedstring" | jq '.download.bandwidth'); down_speed=$(((down_speed*unitop)>>20))
+			down_speed=$(echo "$speedstring" | jq '.download.bandwidth'); down_speed=$(( (down_speed*unitop)>>20 ))
 			down_progress=$(echo "$speedstring" | jq '.download.progress'); down_progress=$(echo "$down_progress*100" | bc -l 2> /dev/null)
 			down_progress=${down_progress%.*}
 			if [[ $mode == "full" ]]; then
@@ -1453,12 +1894,12 @@ testspeed() { #? Using official Ookla speedtest client
 		if now broken; then break; fi
 		
 		while [[ $stype == "upload" && $mode == "full" ]]; do
-			up_speed=$(echo "$speedstring" | jq '.upload.bandwidth'); up_speed=$(((up_speed*unitop)>>20))
+			up_speed=$(echo "$speedstring" | jq '.upload.bandwidth'); up_speed=$(( (up_speed*unitop)>>20 ))
 			elapsed2=$(echo "$speedstring" | jq '.upload.elapsed'); elapsed2=$(echo "scale=2; $elapsed2 / 1000" | bc 2> /dev/null)
 			elapsedt=$(echo "scale=2; $elapsed + $elapsed2" | bc 2> /dev/null)
 			up_progress=$(echo "$speedstring" | jq '.upload.progress'); up_progress=$(echo "$up_progress*100" | bc -l 2> /dev/null)
-			up_progress=${up_progress%.*}; up_progress=$(((up_progress/2)+50))
-			if [[ $up_progress -eq 100 ]]; then ax_anim 1; up_progresst=" $animout "; cs="${bold}${green}"; ce="${white}"; cb=""; else up_progresst=""; cs=""; ce=""; cb="${bold}"; fi
+			up_progress=${up_progress%.*}; up_progress=$(( (up_progress/2)+50 ))
+			if ((up_progress==100)); then ax_anim 1; up_progresst=" $animout "; cs="${bold}${green}"; ce="${white}"; cb=""; else up_progresst=""; cs=""; ce=""; cb="${bold}"; fi
 			printf "\r%-12s$cb%-12s${reset}%-8s${bold}%-16s${reset}$cb%-5s${reset}" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$up_progresst" "$cs" "$ce")    " " $elapsedt  "
 			sleep 0.1
 			test_type_checker
@@ -1469,21 +1910,20 @@ testspeed() { #? Using official Ookla speedtest client
 		wait $speedpid || true
 
 		if [[ $mode == "full" && $stype == "result" ]] && not slowerror; then
-			sleep 0.1
 			speedstring=$(jq -c 'select(.type=="result")' $speedfile)
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth')
-			down_speed=$(((down_speed*unitop)>>20))
+			down_speed=$(( (down_speed*unitop)>>20 ))
 			up_speed=$(echo "$speedstring" | jq '.upload.bandwidth')
-			up_speed=$(((up_speed*unitop)>>20))
+			up_speed=$(( (up_speed*unitop)>>20 ))
 			server_ping=$(echo "$speedstring" | jq '.ping.latency'); server_ping=${server_ping%.*}
 			packetloss=$(echo "$speedstring" | jq '.packetLoss')
 			routetemp="$(echo "$speedstring" | jq -r '.server.host')"
-			if [[ $down_speed -le $slowspeed ]]; then
+			if ((down_speed<=slowspeed)); then
 				downst="FAIL!"
-				if [[ $mtr_internal == "true" && ${#routelistb[@]} -lt $mtr_internal_max && -n $routetemp ]]; then routeadd=1; fi
+				if [[ $mtr_internal == "true" && -n $routetemp ]] && ((${#routelistb[@]}<mtr_internal_max)); then routeadd=1; fi
 			else 
 				downst="OK!"
-				if [[ $mtr_internal_ok == "true" && ${#routelistb[@]} -lt $mtr_internal_max && -n $routetemp ]]; then routeadd=1; fi
+				if [[ $mtr_internal_ok == "true" && -n $routetemp ]] && ((${#routelistb[@]}<mtr_internal_max)); then routeadd=1; fi
 			fi
 
 			if now routeadd; then
@@ -1508,8 +1948,8 @@ testspeed() { #? Using official Ookla speedtest client
 		
 		elif [[ $mode == "down" ]] && not slowerror; then
 			if not slowgoing; then rndbkp[$xl]="$tl"; ((++xl)); fi
-			if [[ $down_speed -le $slowspeed ]]; then downst="FAIL!"; else downst="OK!"; fi
-			if [[ $tdate != $(date +%d) ]] || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
+			if ((down_speed<=slowspeed)); then downst="FAIL!"; else downst="OK!"; fi
+			if (( tdate!=$(date +%d) )) || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc["$tl"]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
 			((++times_tested))
@@ -1641,7 +2081,7 @@ writelog() { #? Write to logfile, buffer and send to colorize()
 	if ((loglevel==103)); then echo -en "$input\n" > "$file"; return; fi
 
 	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | colorize
-	drawm "$drawm_ltitle" "$drawm_lcolor"
+	if not startup; then drawm "$drawm_ltitle" "$drawm_lcolor"; fi
 
 	if not testonly && (($1<=8 & loglevel!=103)); then buffer add "$input"; fi
 }
@@ -1757,12 +2197,12 @@ redraw calc
 drawm "Getting servers..." "$green"
 
 if now trace_errors || now debug; then
-# exec 19>misc/logfile
-# BASH_XTRACEFD=19
-# set -x
-trace_errors="true"
-set -o errtrace
-trap traperr ERR
+	# exec 19>misc/logfile
+	# BASH_XTRACEFD=19
+	# set -x
+	trace_errors="true"
+	set -o errtrace
+	trap traperr ERR
 fi
 
 if now buffer_save && [[ -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
