@@ -1,12 +1,12 @@
 # spdtest.sh
 
 **Version:** 0.2.0  
-**Usage:** Script with UI for testing internet speed reability
+**Usage:** Bash (+ some python) script with UI for testing internet speed reability
 
 ## Description
 
-Internet speeds are tested against random servers from speedtest.net with 'speedtest' at an interval (defined by user).  
-If slow speed (defined by user) is detected, then runs a number of download and upload test with 'speedtest' and optional route tests to servers with 'mtr' and writes to a logfile.
+Internet speeds are tested against random servers from speedtest.net at an interval (defined by user).  
+If slow speed (defined by user) is detected, then runs a number of download and upload test with and optional route tests to servers and writes to a logfile.
 
 ## Dependencies
 
@@ -18,18 +18,18 @@ If slow speed (defined by user) is detected, then runs a number of download and 
 
 **[jq](https://stedolan.github.io/jq/)** Needed for json parsing  
 
-**[less](http://www.greenwoodsoftware.com/less/)** For logfile viewing  
-
 ## Included
 
 **[speedtest-cli](https://github.com/sivel/speedtest-cli)** Used to get serverlist, since official client is limited to 10 servers.  
-Should not be installed globally since name conflicts with official client, version 2.1.2 included.  
+Modified and heavily stripped down, based on version 2.1.2, python code included in the script
 
 **[grc](https://github.com/garabik/grc)** For making text output in the UI pretty.  
-Modified version of grcat included in the script.
+Modified version of grcat, python code included in the script.
 
-**getIdle** Python code included in script.
+**getIdle** Get XServer idle time. Python code included in script.
 
 ## Optionals
 
 **[mtr](https://github.com/traviscross/mtr)** Needed if you want to check routes to slow servers  
+
+**[less](http://www.greenwoodsoftware.com/less/)** Needed if you want option to view logfile from UI  
