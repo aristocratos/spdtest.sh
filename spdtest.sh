@@ -1807,7 +1807,7 @@ test_type_checker() { #? Check current type of test being run by speedtest
 		stype=$(echo "$speedstring" | jq -r '.type' 2> /dev/null)
 		if now broken; then stype="broken"; fi
 		if [[ $stype == "log" ]]; then slowerror=1; return; fi
-		if not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
+		if [[ $mode == "full" ]] && not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
 }
 
 testspeed() { #? Using official Ookla speedtest client
@@ -1917,7 +1917,7 @@ testspeed() { #? Using official Ookla speedtest client
 		
 		#? ------------------------------------Checks--------------------------------------------------------------
 		if now broken; then break; fi
-		wait $speedpid || true
+		if [[ $mode == "full" ]]; then wait $speedpid || true; fi
 
 		if [[ $mode == "full" && $stype == "result" ]] && not slowerror; then
 			speedstring=$(jq -c 'select(.type=="result")' $speedfile)
@@ -1963,7 +1963,6 @@ testspeed() { #? Using official Ookla speedtest client
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc["$tl"]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
 			((++times_tested))
-			#drawm "Testing speed" "$green"
 			if ((down_speed<=slowspeed & ${#testlista[@]}>1 & tests<max_tests)) && not slowgoing; then
 				tl2=$tl
 				while [[ $tl2 == "$tl" ]]; do
@@ -1984,7 +1983,6 @@ testspeed() { #? Using official Ookla speedtest client
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
-			#drawm "Testing speed" "$green"
 			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; return; fi
 			if ((${#testlista[@]}>1 & err_retry<${#testlista[@]})); then
 				tl2=$tl
