@@ -107,9 +107,11 @@ chars="/-\|"
 escape_char=$(printf "\u1b")
 charx=0
 animx=1
+serverlist_error=0
 animout=""
 bufflen=0
 scrolled=0
+speedpid=""
 logfile=""
 buffsize=0
 buffpos=0
@@ -131,17 +133,17 @@ menu_array=(
 	"Quit.1.red"
 	"Menu.1.yellow"
 	"Help.1.blue"
-	"Timer.4.green"
+	"Timer.1.green"
 	"Idle.1.magenta"
 	"Pause.1.yellow"
-	"Test.1.green"
+	"Slowcheck.1.green"
 	"Force test.1.cyan"
 	"Update servers.1.magenta"
 	"Clear buffer.1.yellow"
 	)
 if command -v less >/dev/null 2>&1; then less="true"; menu_array+=("View log.1.cyan"); else less="false"; fi
 timer_array=(
-	"← Exit.3.yellow"
+	"← Timer.3.yellow"
 	"Add Hour.5.green"
 	"Rem hour.5.red"
 	"Add Minute.5.green"
@@ -510,7 +512,8 @@ fi
 assasinate() { #? Silently kill running process if not already dead
 	local i
 	for i in "$@"; do
-	if kill -0 "$i" >/dev/null 2>&1; then kill "$i" >/dev/null 2>&1; fi 
+	if kill -0 "$i" >/dev/null 2>&1; then kill "$i" >/dev/null 2>&1 &
+	fi 
 	done
 }
 
@@ -965,7 +968,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 
 	if [[ $quiet_start = "true" && $loglevel -ge 3 ]]; then bkploglevel=$loglevel; loglevel=103
 	elif [[ $quiet_start = "true" && $loglevel -lt 3 ]]; then bkploglevel=$loglevel; loglevel=1000; fi
-
+	if [[ -n ${testlista[0]} ]]; then bkp_testlista=("${testlista[@]}"); fi
 	if [[ -e $servercfg && $servercfg != "/dev/null" && $updateservers = 0 ]]; then
 		source "$servercfg"
 		writelog 3 "\nUsing servers from $servercfg"
@@ -993,6 +996,15 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 			writelog 3 "$num. $servdesc"
 			((++num))
 		done
+	fi
+	if [[ ! ${testlista[0]} =~ ^[0-9]+$ ]]; then
+		if [[ -n ${bkp_testlista[0]} ]]; then 
+			if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
+			writelog 1 "ERROR: Could not get new server list, using old one!"; testlista=("${bkp_testlista[@]}")
+		else serverlist_error=1
+		fi
+	else
+		serverlist_error=0
 	fi
 	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
 	numslowservers=${numslowservers:-$((num-1))}
@@ -1387,11 +1399,8 @@ inputwait() { #? Timer and input loop
 	while [[ $secs -gt 0 ]]; do
 		tput sc; tput cup $titleypos $(( (width / 2)-4 ))
 		if now paused && not timer_menu; then bl="$dark"; else bl=""; fi
-		if [[ $secs -le 10 ]]; then
-			printf "${bgl}${bl}%02d:%02d:${red}%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
-		else
-			printf "${bgl}${bl}%02d:%02d:%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
-		fi
+		if [[ $secs -le 10 ]]; then hcolor=$red; else hcolor=$white; fi			
+		printf "${bgl}${bl}%02d:%02d:${hcolor}%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
 		tput rc
 		
 		read -srd '' -t 0.0001 -n 10000 || true
@@ -1424,7 +1433,7 @@ inputwait() { #? Timer and input loop
 					drawm "Timer saved!" "$green" 2; drawm
 					;;
 				r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
-				e|E)
+				t|T)
 					toggle timer_menu
 					if old pausetoggled notsame; then toggle pausetoggled; else gen_menu; fi
 					if old menu_status notsame; then menu toggle; else drawm; fi
@@ -1434,7 +1443,7 @@ inputwait() { #? Timer and input loop
 		else #* Regular main menu keys -------------------------------------------------------
 			case "$keyp" in
 				p|P) toggle pausetoggled ;;
-				t|T) break ;;
+				s|S) break ;;
 				i|I)
 					if now idle && [[ -n $idletimer ]]; then idlebreak=1; idledone=0; idle="false"; break
 					elif not idle && [[ -n $idletimer ]]; then idlebreak=1; idledone=0; idle="true"; break
@@ -1442,7 +1451,7 @@ inputwait() { #? Timer and input loop
 					toggle idle
 					secs=$stsecs; updatesec=1; gen_menu; drawm
 					;;
-				e|E) 
+				t|T) 
 					toggle timer_menu
 					old pausetoggled save; old menu_status save
 					if not paused; then toggle pausetoggled; else gen_menu; fi
@@ -1805,9 +1814,9 @@ tcount() { #? Run timer count and write to shared memory, meant to be run in bac
 test_type_checker() { #? Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
 		stype=$(echo "$speedstring" | jq -r '.type' 2> /dev/null)
-		if now broken; then stype="broken"; fi
+		if now broken; then stype="broken"; return; fi
 		if [[ $stype == "log" ]]; then slowerror=1; return; fi
-		if [[ $mode == "full" ]] && not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
+		if not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
 }
 
 testspeed() { #? Using official Ookla speedtest client
@@ -1881,6 +1890,7 @@ testspeed() { #? Using official Ookla speedtest client
 
 		while [[ ! $stype =~ download|log|ended ]]; do
 			sleep 0.1
+			test_type_checker
 			if now broken; then break 2; fi
 		done
 
@@ -1983,7 +1993,7 @@ testspeed() { #? Using official Ookla speedtest client
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
-			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; return; fi
+			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; break; fi
 			if ((${#testlista[@]}>1 & err_retry<${#testlista[@]})); then
 				tl2=$tl
 				while contains "${errorlist[@]}" "$tl2"; do
@@ -1999,7 +2009,6 @@ testspeed() { #? Using official Ookla speedtest client
 
 		warnings=""
 	done #? Test loop end ----------------------------------------------------------------------------------------------------------------------->
-	
 	assasinate "$speedpid"
 	if now broken && [[ $mode == "full" ]]; then tput el; tput el1; writelog 1 "\nWARNING: Full test aborted!\n"; 
 	elif now broken && [[ $mode == "down" ]]; then tput el; tput el1; writelog 2 "\nWARNING: Slow test aborted!\n"; 
@@ -2172,9 +2181,12 @@ deliver "$tmpout"
 
 if now genservers; then #? Gets servers, write to file and quit if -gs or --gen-server-cfg was passed
 	echo -e "\nCreating server.cfg.sh"
+	stat=0
 	loglevel=0
 	getservers
-	exit 0
+	if now serverlist_error; then writelog 1 "ERROR: Failed to get server list!"; stat=1; fi
+	bury "$tmpout"
+	exit $stat
 fi
 
 logrotate
@@ -2184,15 +2196,21 @@ deliver "$speedfile" "$routefile"
 
 if now testonly; then #? Run tests and quit if variable test="true" or arguments -t or --test was passed to script
 	getservers
-	for i in $testnum; do
-		testspeed "full"
-		if now broken; then stat=1; break; fi
-		routetest
-		if now broken; then stat=1; break; fi
-		stat=0
-	done
-	assasinate "$routepid" "$speedpid"
-	bury "$speedfile" "$routefile" "$tmpout"
+	if not serverlist_error; then
+		for i in $testnum; do
+			testspeed "full"
+			if now broken; then stat=1; break; fi
+			routetest
+			if now broken; then stat=1; break; fi
+			stat=0
+		done
+		assasinate "$routepid" "$speedpid"
+		bury "$speedfile" "$routefile"
+	elif now serverlist_error; then
+		writelog 1 "ERROR: Could not get server list! Exiting..."
+		stat=1
+		bury "$tmpout"
+	fi
 	exit $stat
 fi
 
@@ -2219,6 +2237,7 @@ if now debug; then x_debug1; fi #* Remove
 #writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
 
 getservers
+if now serverlist_error; then writelog 1 "ERROR: Failed to get server list! Retrying at next slowcheck."; fi
 
 if  now displaypause && monitor_on; then paused="true"
 elif now displaypause && ! monitor_on; then paused="false"
@@ -2243,7 +2262,11 @@ z_main_loop() {
 		inputwait "$waittime"
 	fi
 
-	if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests! ($(date +%H:%M))"; return; fi	
+	if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests! ($(date +%H:%M))"; return; fi
+	if now serverlist_error; then 
+		getservers
+		if now serverlist_error; then writelog 1 "ERROR: Failed to get server list! Retrying at next slowcheck."; return; fi
+	fi
 
 	if not idlebreak; then
 		logrotate
