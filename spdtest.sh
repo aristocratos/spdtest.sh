@@ -81,12 +81,13 @@ secfile="${temp}/spdtest-sec.$$"
 speedfile="${temp}/spdtest-speed.$$"
 routefile="${temp}/spdtest-route.$$"
 tmpout="${temp}/spdtest-tmpout.$$"
+
 bufferfile="${temp}/spdtest-buffer.$$"
-#grc_import="grc_import$$"
 declare -x colorize_input
 grc_err=0
 getIdle_err=0
 if [[ -z $DISPLAY ]]; then declare -x DISPLAY=":0"; fi
+ulimit -s 65536
 startup=1
 forcetest=0
 detects=0
@@ -109,6 +110,7 @@ animx=1
 animout=""
 bufflen=0
 scrolled=0
+logfile=""
 buffsize=0
 buffpos=0
 buffpid=""
@@ -136,8 +138,8 @@ menu_array=(
 	"Force test.1.cyan"
 	"Update servers.1.magenta"
 	"Clear buffer.1.yellow"
-	"View log.1.cyan"
 	)
+if command -v less >/dev/null 2>&1; then less="true"; menu_array+=("View log.1.cyan"); else less="false"; fi
 timer_array=(
 	"← Exit.3.yellow"
 	"Add Hour.5.green"
@@ -330,7 +332,7 @@ if [[ ! $(speedtest -V | head -n1) =~ "Speedtest by Ookla" ]]; then
 	echo "ERROR: Ookla speedtest client not found!"; exit 1
 fi
 
-if ! command -v mtr >/dev/null 2>&1; then mtr="false"; fi
+if [[ $mtr == "true" ]] && ! command -v mtr >/dev/null 2>&1; then mtr="false"; fi
 
 #? Start argument parsing ------------------------------------------------------------------------------------------------------------------>
 argumenterror() { #? Handles argument errors
@@ -591,9 +593,14 @@ bury() { #? Silently remove files
 	done
 }
 
-colorize() { #? Make the text pretty using a slightly modified version of grc
-	declare colorize_input=${1:-$(</dev/stdin)}
+colorize() { #? Make the text pretty using a slightly modified version of grc, usage colorize "text" ["<file"]
+	declare -x colorize_input=${1:-$(</dev/stdin)}
 	if [[ -z $colorize_input ]]; then return; fi
+	if [[ $2 == "<file" ]]; then 
+		fileline="open(inputvar, 'r')"
+	else
+		fileline="io.StringIO(inputvar)"
+	fi
 	if ((grc_err>=10)); then echo -e "$input"; return; fi
 python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
 from __future__ import print_function
@@ -655,7 +662,8 @@ prevcolour = colours['default']
 prevcount = "more"
 blockflag = 0
 inputvar = os.environ.get('colorize_input')
-inputstring = io.StringIO(inputvar)
+# inputstring = io.StringIO(inputvar)
+inputstring = $fileline
 while 1:
 	line = inputstring.readline()
 	if line == "" :
@@ -1443,8 +1451,10 @@ inputwait() { #? Timer and input loop
 				m|M) menu toggle ;;
 				f|F) forcetest=1; break ;;
 				v|V)
-					if [[ -s $logfile ]]; then tput clear; printf "%s\t\t%s\t\t%s\n%s" "Viewing ${logfile}" "q = Quit" "h = Help" "$(<"$logfile")" | colorize | less -rMXx1 +Gg; redraw full
-					else drawm "Log empty!" "$red" 2; drawm
+					if now less; then
+						if [[ -s $logfile ]]; then tput clear; colorize "$logfile" "<file" | less -rMXx1 +Gg; redraw full
+						else drawm "Log empty!" "$red" 2; drawm
+						fi
 					fi
 					;;
 				c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
