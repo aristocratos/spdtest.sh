@@ -31,6 +31,7 @@ unit="mbit"				#* Valid values are "mbit" and "mbyte"
 slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
 numservers="30"			#* How many of the closest servers to get from speedtest.net, used as random pool of servers to test against
 slowretry="1"			#* When speed is below slowspeed, how many retries of random servers before running full tests
+max_err_retry="10"		#* Max servers to test if an error is encountered in slowcheck
 numslowservers="8"		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
 precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
 precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
@@ -102,6 +103,7 @@ times_tested=0
 pausetoggled=0
 slowerror=0
 stype=""
+testing="0"
 speedstring=""
 chars="/-\|"
 escape_char=$(printf "\u1b")
@@ -109,6 +111,7 @@ charx=0
 animx=1
 serverlist_error=0
 animout=""
+dark_on="0"
 bufflen=0
 scrolled=0
 speedpid=""
@@ -116,6 +119,7 @@ logfile=""
 buffsize=0
 buffpos=0
 buffpid=""
+pause_override=0
 trace_msg=""
 scroll_symbol=""
 drawm_ltitle="" 
@@ -163,7 +167,6 @@ declare -A routelistdesc; declare -A routelistport
 declare -a testlista; declare -A testlistdesc
 declare -a rndbkp
 declare -a errorlist
-declare -A was_list
 declare -A old_list
 cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
@@ -784,7 +787,6 @@ contains() { #? Function for checking if a value is contained in an array, argum
 ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing otherwise cleanup and exit
 	if now testing; then
 		assasinate "$speedpid" "$routepid"
-		reset broken
 		broken=1
 		return
 	else
@@ -806,13 +808,13 @@ deliver() {  #? Create file(s) if not created and set r/w for user only
 }
 
 drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sleep time>
-	local curline tlength mline i il da
 	if now testonly; then return; fi
+	local curline tlength mline i il da
 	tput sc
 	if now trace_errors; then tput cup 0 55; echo -en "$trace_msg"; fi
 
-	if menu && wasnt testing && now testing; then gen_menu darken
-	elif menu && was testing && not testing; then gen_menu
+	if menu && now testing && not dark_on; then gen_menu darken; dark_on=1
+	elif menu && not testing && now dark_on; then gen_menu; dark_on=0
 	fi
 	#printf "${bold}${dark}%0$(tput cols)d" 0 | tr '0' '≡'
 	
@@ -868,34 +870,30 @@ drawscroll_symbol() { #? Draw scroll direction arrow in titlebar
 }
 
 gen_menu() { #? Generate main menu and adapt for window width
-	local i menuconv underpos color mend nline nlinex tmp_array no_color darken ult="$ul"
-	if now paused; then paustate="${yellow}On"; else paustate="${dark}Off"; fi
-	if now idle; then idlstate="${magenta}On"; else idlstate="${dark}Off"; fi
+	local i menuconv menuconvt underpos color mend nline nlinex tmp_array no_color darken x px ix ult="$ul"
+	if now paused; then paustate="${yellow}On"; px=3; else paustate="${dark}Off"; px=4; fi
+	if now idle; then idlstate="${magenta}On"; ix=3; else idlstate="${dark}Off"; ix=4; fi
 
 	tmp_array=("${menu_array[@]}")
 
-	
 	if now timer_menu; then no_color=1; exp_menu="Timer"; tmp_array+=( "\n" "${timer_array[@]}" ); fi
 	
 	main_menu="\e[1C${bold}"; menuconv=1; nlinex=1
 
 	for i in "${tmp_array[@]}"; do
 		if [[ $i == "\n" ]]; then 
-			menuconv=$(( (width*nlinex) +1 )); ((++nlinex))
+			menuconv=$(( (width*nlinex) +1)); ((++nlinex))
 			main_menu="${main_menu}\n\e[1C"
 			no_color=0
 		else	
-			if [[ $1 == "darken" ]] || now no_color && [[ ! ${i%%.*} == "Quit" ]]; then darken="$dark"; color="dark"; ult=""
+			if [[ $1 == "darken" ]] || (now no_color && [[ ! ${i%%.*} == "Quit" ]]); then darken="$dark"; color="dark"; ult=""
+			else darken=""; color=${i##*.*.}
+			fi
 
-			else darken=""; color=${i##*.*.}; fi
+			i=${i%.*}; underpos=$((${i##*.}-1)); i=${i%.*}
 
-			i=${i%.*}
-			underpos=$((${i##*.}-1)); i=${i%.*}
-
-			if ([[ $i == "Pause" ]] && now paused) || ([[ $i == "Idle" ]] && now idle); then menuconv=$((menuconv+3))
-			elif ([[ $i == "Pause" ]] && not paused) || ([[ $i == "Idle" ]] && not idle); then menuconv=$((menuconv+4)); fi
-
-			menuconv=$((menuconv+${#i}+2)); if ((menuconv>=width*nlinex)); then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 )); ((++nlinex)); else nline=""; fi
+			if [[ $i == "Pause" ]]; then x=$px; elif [[ $i == "Idle" ]]; then x=$ix; else x=0; fi
+			menuconvt=$((${#i}+2+x)); if ((menuconv+menuconvt>=width*nlinex)); then nline="\n\e[1C"; menuconv=$(( (width*nlinex) +1 +menuconvt )); ((++nlinex)); else nline=""; menuconv=$((menuconv+menuconvt)); fi
 
 			if [[ $i == "Pause" ]]; then i="$i ${!color}$paustate"; elif [[ $i == "Idle" ]]; then i="$i ${!color}$idlstate"; fi
 
@@ -950,7 +948,7 @@ EOF
 getIdle_err=$((getIdle_err+$?))
 }
 
-getproc() { #? Get /proc/dev/net 
+getproc() { #? Get /proc/dev/net from local filesystem or from ssh if enabled
 	if [[ -n $precheck_ssh ]]; then
 		ssh -S "$ssh_socket" "$precheck_ssh" "grep $proc_nd /proc/net/dev"
 	else
@@ -966,10 +964,13 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	local num IFS=$'\n'
 	num=1
 
-	if [[ $quiet_start = "true" && $loglevel -ge 3 ]]; then bkploglevel=$loglevel; loglevel=103
-	elif [[ $quiet_start = "true" && $loglevel -lt 3 ]]; then bkploglevel=$loglevel; loglevel=1000; fi
+	if now quiet_start; then
+		old loglevel save
+		if ((loglevel>=3)); then loglevel=103
+		elif ((loglevel<3)); then loglevel=1000; fi
+	fi
 	if [[ -n ${testlista[0]} ]]; then bkp_testlista=("${testlista[@]}"); fi
-	if [[ -e $servercfg && $servercfg != "/dev/null" && $updateservers = 0 ]]; then
+	if [[ -e $servercfg && $servercfg != "/dev/null" ]] && not updateservers; then
 		source "$servercfg"
 		writelog 3 "\nUsing servers from $servercfg"
 		for tl in "${testlista[@]}"; do
@@ -998,8 +999,8 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 		done
 	fi
 	if [[ ! ${testlista[0]} =~ ^[0-9]+$ ]]; then
-		if [[ -n ${bkp_testlista[0]} ]]; then 
-			if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
+		if [[ -n ${bkp_testlista[0]} ]]; then
+			if now quiet_start; then loglevel=$(old loglevel get); fi
 			writelog 1 "ERROR: Could not get new server list, using old one!"; testlista=("${bkp_testlista[@]}")
 		else serverlist_error=1
 		fi
@@ -1013,14 +1014,13 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 		# shellcheck disable=SC1091
 		source route.cfg.sh
 		writelog 3 "Hosts in route.cfg.sh:"
-		
 		for i in "${routelista[@]}"; do
 			writelog 3 "(${routelistdesc["$i"]}): $i"
 		done
 		writelog 3 "\n"
 	fi
 
-	if [[ $quiet_start = "true" ]]; then loglevel=$bkploglevel; fi
+	if now quiet_start && old loglevel notsame; then loglevel=$(old loglevel get); fi
 }
 
 getservers_cli() { #? Modified and heavly compacted version of speedtest-cli, unmodified source at https://github.com/sivel/speedtest-cli
@@ -1388,6 +1388,7 @@ inputwait() { #? Timer and input loop
 	else
 		secs=$(( ${1#0} * 3600 + ${2#0} * 60 + ${3#0} ))
 	fi
+	if ((secs<60)); then secs=60; fi
 	stsecs=$secs
 	if not paused; then
 		tcount $secs &
@@ -1399,11 +1400,11 @@ inputwait() { #? Timer and input loop
 	while [[ $secs -gt 0 ]]; do
 		tput sc; tput cup $titleypos $(( (width / 2)-4 ))
 		if now paused && not timer_menu; then bl="$dark"; else bl=""; fi
-		if [[ $secs -le 10 ]]; then hcolor=$red; else hcolor=$white; fi			
+		if ((secs<=10)); then hcolor=$red; else hcolor=$white; fi			
 		printf "${bgl}${bl}%02d:%02d:${hcolor}%02d${reset}${bgr}" $((secs/3600)) $(( (secs/60) %60 )) $((secs%60))
 		tput rc
 		
-		read -srd '' -t 0.0001 -n 10000 || true
+		read -srd '' -t 0.0001 -n 10000 || true #* Clear any remaining input from last keypress
 		# shellcheck disable=SC2162
 		read -srn 1 -t 0.9999 keyp || true
 		if [[ $keyp == "$escape_char" ]]; then read -rsn3 -t 0.0001 keyp || true ; fi
@@ -1435,7 +1436,7 @@ inputwait() { #? Timer and input loop
 				r|R) unset waitsaved ; secs=$stsecs; updatesec=1 ;;
 				t|T)
 					toggle timer_menu
-					if old pausetoggled notsame; then toggle pausetoggled; else gen_menu; fi
+					if old paused notsame; then toggle pausetoggled; else gen_menu; fi
 					if old menu_status notsame; then menu toggle; else drawm; fi
 					 ;;
 			esac
@@ -1453,7 +1454,7 @@ inputwait() { #? Timer and input loop
 					;;
 				t|T) 
 					toggle timer_menu
-					old pausetoggled save; old menu_status save
+					old paused save; old menu_status save
 					if not paused; then toggle pausetoggled; else gen_menu; fi
 					if not menu; then menu toggle; else drawm; fi
 					;;
@@ -1466,20 +1467,24 @@ inputwait() { #? Timer and input loop
 						fi
 					fi
 					;;
-				c|C) if ! buffer ; then tput clear; tput cup 3 0; drawm
+				c|C) if not buffer ; then tput clear; tput cup 3 0; drawm
 					else buffer "clear"
 					fi ;;
 				u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
 			esac
 		fi
 
-		if  ( not paused && now pausetoggled) || (not paused pausetoggled && now displaypause && monitor_on); then
+		if  ( not paused && now pausetoggled) || (not paused pause_override && now displaypause && monitor_on); then
+			if now pausetoggled; then toggle pause_override; else pause_override=0; fi
 			paused="true"
+			pausetoggled=0
 			assasinate "$secpid"
 			gen_menu
 			drawm
-		elif (now paused && not pausetoggled) || (now paused displaypause && not pausetoggled && not monitor_on); then
+		elif (now paused pausetoggled) || (now paused displaypause && not monitor_on); then
+			if now pausetoggled; then toggle pause_override; else pause_override=0; fi
 			paused="false"
+			pausetoggled=0
 			tcount $secs &
 			secpid="$!"
 			gen_menu
@@ -1565,7 +1570,7 @@ not() { #? Multi function: Invert of now(), usage: not "var1" ["var2"] ...
 	if now "$1"; then return 1; else return 0; fi
 }
 
-now() { #? Returns true or false for one or multiple variables, usage: now "var1" ["var2"] ...
+now() { #? Returns true if one or multiple variables value is true, usage: now "var1" ["var2"] ...
 	if [[ -z $1 ]]; then return; fi
 	if [[ "$#" -gt 1 ]]; then
 		local i x=0
@@ -1577,15 +1582,15 @@ now() { #? Returns true or false for one or multiple variables, usage: now "var1
 
 	local var="$1"
 	if [[ -z ${!var} || ${!var} =~ 0|false|False|FALSE ]]; then
-		if [[ -n ${!var} ]] && wasnt "$var"; then reset "$var"; fi
+		#if [[ -n ${!var} ]] && wasnt "$var"; then reset "$var"; fi
 		return 1
 	elif [[ ${!var} =~ 1|true|True|TRUE ]]; then
-		if wasnt "$var"; then reset "$var"; fi
+		#if wasnt "$var"; then reset "$var"; fi
 		return 0
 	fi
 }
 
-old() {
+old() { #? Save value or get value or compare a variable with saved value, usage: old "variable"  [save/get/same/notsame]
 	if [[ -z $1 ]]; then return; fi
 	local out var="$1"
 	if [[ $2 == "save" ]]; then old_list[$var]="${!var}"; return
@@ -1735,11 +1740,6 @@ redraw() { #? Redraw menu and reprint buffer if window is resized
 	sleep 0.1
 }
 
-reset() { #? Set variable was() state to current value, usage: reset "variable name"
-	if [[ -z $1 ]]; then return 1; fi
-	was "$1" add
-}
-
 routetest() { #? Test routes with mtr
 	if not mtr || now broken || internet down; then return; fi
 	testing=1
@@ -1783,6 +1783,7 @@ routetest() { #? Test routes with mtr
 
 			if now broken; then break; fi
 			writelog 1 "$(tail -n+2 <$routefile)\n"
+			buffer "redraw"
 
 		else
 			echo "ERROR: Host not reachable!" | writelog 1
@@ -1813,7 +1814,7 @@ tcount() { #? Run timer count and write to shared memory, meant to be run in bac
 
 test_type_checker() { #? Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
-		stype=$(echo "$speedstring" | jq -r '.type' 2> /dev/null)
+		stype=$(echo "$speedstring" | jq -r '.type' 2> /dev/null || true)
 		if now broken; then stype="broken"; return; fi
 		if [[ $stype == "log" ]]; then slowerror=1; return; fi
 		if not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
@@ -1835,6 +1836,7 @@ testspeed() { #? Using official Ookla speedtest client
 	elif [[ $mode == "down" ]]; then
 
 		max_tests=$slowretry
+		if ((max_err_retry>${#testlista[@]})); then max_err_retry=${#testlista[@]}; fi
 		if ((${#testlista[@]}>1)) && not slowgoing; then
 			tl=$(random array_value testlista)
 		elif ((${#testlista[@]}>1)) && now slowgoing; then
@@ -1847,6 +1849,7 @@ testspeed() { #? Using official Ookla speedtest client
 	fi
 
 	while ((tests<=max_tests)); do #? Test loop start ------------------------------------------------------------------------------------>
+		down_speed=""; down_progress=""; elapsed=""; elapsed2=""; up_speed=""; up_progress=""
 		if [[ $mode == "full" ]]; then
 			if not slowgoing forcetest testonly; then
 				writelog 1 "\n<---------------------------------------Slow speed detected!---------------------------------------->"
@@ -1861,9 +1864,9 @@ testspeed() { #? Using official Ookla speedtest client
 			tput cuu1; drawm "Running full test" "$red"
 			routetemp=""
 			routeadd=0
-
+	
 		elif [[ $mode == "down" ]]; then
-			if ((tests>=1)); then numstat="<-- Attempt $((tests+1))"; else numstat=""; fi
+			if ((tests>=1 | err_retry>=1)); then numstat="<-- Attempt $((tests+1+err_retry))"; else numstat=""; fi
 			printf "\r%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress 0 "Init")" " ${testlistdesc["$tl"]} $numstat"| writelog 9
 			tput cuu1; drawm "Testing speed" "$green"
 		fi
@@ -1898,6 +1901,7 @@ testspeed() { #? Using official Ookla speedtest client
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth'); down_speed=$(( (down_speed*unitop)>>20 ))
 			down_progress=$(echo "$speedstring" | jq '.download.progress'); down_progress=$(echo "$down_progress*100" | bc -l 2> /dev/null)
 			down_progress=${down_progress%.*}
+			if [[ ! $down_progress =~ ^[0-9]+$ ]]; then down_progress=0; fi
 			if [[ $mode == "full" ]]; then
 				down_progress=$((down_progress/2))
 				elapsed=$(echo "$speedstring" | jq '.download.elapsed'); elapsed=$(echo "scale=2; $elapsed / 1000" | bc 2> /dev/null)
@@ -1930,7 +1934,7 @@ testspeed() { #? Using official Ookla speedtest client
 		if [[ $mode == "full" ]]; then wait $speedpid || true; fi
 
 		if [[ $mode == "full" && $stype == "result" ]] && not slowerror; then
-			speedstring=$(jq -c 'select(.type=="result")' $speedfile)
+			speedstring=$(jq -c 'select(.type=="result")' $speedfile || true)
 			down_speed=$(echo "$speedstring" | jq '.download.bandwidth')
 			down_speed=$(( (down_speed*unitop)>>20 ))
 			up_speed=$(echo "$speedstring" | jq '.upload.bandwidth')
@@ -1960,10 +1964,11 @@ testspeed() { #? Using official Ookla speedtest client
 			((++tests))
 		
 		elif [[ $mode == "full" ]] && now slowerror; then
-			warnings="ERROR: Couldn't test server!"
+			warnings="ERROR: Test ended early!"
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
 			if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; return; fi
+			slowerror=0
 			((++tests))
 		
 		elif [[ $mode == "down" ]] && not slowerror; then
@@ -1992,13 +1997,14 @@ testspeed() { #? Using official Ookla speedtest client
 			((++err_retry))
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
-			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Couldn't test server!" | writelog 2
+			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Test ended early!" | writelog 2
 			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; break; fi
-			if ((${#testlista[@]}>1 & err_retry<${#testlista[@]})); then
+			if ((err_retry<max_err_retry)); then
 				tl2=$tl
 				while contains "${errorlist[@]}" "$tl2"; do
 					tl2=$(random array_value testlista)
 				done
+				slowerror=0
 				tl=$tl2
 			else
 				writelog 2 "\nERROR: Couldn't get current speed from servers!"
@@ -2018,7 +2024,6 @@ testspeed() { #? Using official Ookla speedtest client
 
 toggle() { #? Toggle a variables true or false state
 	if [[ -z $1 || -z ${!1} ]]; then return; fi
-
 	if [[ "$#" -gt 1 ]]; then
 		local i
 		for i in "$@"; do
@@ -2026,19 +2031,10 @@ toggle() { #? Toggle a variables true or false state
 		done
 		return
 	fi
-
-	if [[ ${!1} == "0" ]]; then 
-		eval "$1=1"
-		was "$var" add "0"
-	elif [[ ${!1} =~ false|False|FALSE ]]; then
-		eval "$1=true"
-		was "$var" add "false"
-	elif [[ ${!1} == "1" ]]; then
-		eval "$1=0"
-		was "$var" add "1"
-	elif [[ ${!1} =~ true|True|TRUE ]]; then
-		eval "$1=false"
-		was "$var" add "true"
+	if [[ ${!1} == "0" ]]; then eval "$1=1"
+	elif [[ ${!1} =~ false|False|FALSE ]]; then eval "$1=true"
+	elif [[ ${!1} == "1" ]]; then eval "$1=0"
+	elif [[ ${!1} =~ true|True|TRUE ]]; then eval "$1=false"
 	fi
 }
 
@@ -2072,24 +2068,6 @@ waiting() { #? Show animation and text while waiting for background job, argumen
 
 }
 
-was() { #? Returns state or sets previous true or false state of a variable, usage: was "variable name" [add] [value]
-	if [[ -z $1 ]]; then return; fi
-	local out var="$1"
-	if [[ $2 == "add" ]]; then
-		out=${3:-${!var}}
-		was_list[$var]="$out"
-	elif [[ -z ${was_list[$var]} || ${was_list[$var]} =~ 0|false|False|FALSE ]]; then
-		return 1
-	elif [[ ${was_list[$var]} =~ 1|true|True|TRUE ]]; then
-		return 0
-	fi
-}
-
-wasnt() { #? Returns true if previous variable state is NOT true, usage: wasnt "variable name"
-	if [[ -z $1 ]]; then return; fi
-	if was "$1"; then return 1; else return 0; fi
-}
-
 writelog() { #? Write to logfile, buffer and send to colorize()
 	if ((loglevel==1000)); then return; fi
 	declare input=${2:-$(</dev/stdin)}
@@ -2097,7 +2075,7 @@ writelog() { #? Write to logfile, buffer and send to colorize()
 	if (($1<=loglevel | loglevel==103)); then file="$logfile"; else file="/dev/null"; fi
 	if ((loglevel==103)); then echo -en "$input\n" > "$file"; return; fi
 
-	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | colorize
+	echo -e "$input" | tee -a "$file" | cut -c -"$width" | colorize
 	if not startup; then drawm "$drawm_ltitle" "$drawm_lcolor"; fi
 
 	if not testonly && (($1<=8 & loglevel!=103)); then buffer add "$input"; fi
@@ -2167,8 +2145,9 @@ x_debug1() { #* Remove
 	ctrl_c
 }
 
-#?> End functions -------------------------------------------------------------------------------------------------------------------->
+#? End functions -------------------------------------------------------------------------------------------------------------------->
 
+#? Pre main loop -------------------------------------------------------------------------------------------------------------------->
 z__pre_main() { echo -n; }
 
 trap ctrl_c INT
@@ -2240,7 +2219,7 @@ getservers
 if now serverlist_error; then writelog 1 "ERROR: Failed to get server list! Retrying at next slowcheck."; fi
 
 if  now displaypause && monitor_on; then paused="true"
-elif now displaypause && ! monitor_on; then paused="false"
+elif now displaypause && not monitor_on; then paused="false"
 fi
 
 if not paused && now startuptest && internet up; then
@@ -2251,9 +2230,6 @@ fi
 drawm
 startup=0
 
-
-
-
 #? Main loop function ------------------------------------------------------------------------------------------------------------------>
 z_main_loop() {
 	if [[ -n $idletimer ]] && now idle && not slowgoing idledone startupdetect; then
@@ -2262,9 +2238,8 @@ z_main_loop() {
 		inputwait "$waittime"
 	fi
 
-	if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests! ($(date +%H:%M))"; return; fi
-	if now serverlist_error; then 
-		getservers
+	if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests! ($(date +%H:%M))"; return
+	elif now serverlist_error; then getservers
 		if now serverlist_error; then writelog 1 "ERROR: Failed to get server list! Retrying at next slowcheck."; return; fi
 	fi
 
@@ -2282,19 +2257,22 @@ z_main_loop() {
 		if now broken; then return; fi
 
 		if now forcetest; then
-			if ((loglevel<4)); then bkploglevel=$loglevel; loglevel=0; fi
+			old loglevel save
+			if ((loglevel<4)); then loglevel=0; fi
 			writelog 9 "\n INFO: Running forced test!"
 			testspeed "full"
 			routetest
-			if [[ -n $bkploglevel ]] && ((bkploglevel<4)); then loglevel=$bkploglevel; fi
+			if old loglevel notsame; then loglevel=$(old loglevel get); fi
 			forcetest=0
+
 		elif ((lastspeed<=slowspeed)) && not slowerror; then
 			testspeed "full"
 			routetest
 			detects=$((detects + 1))
-			if [[ -n $slowwait ]]; then waitbkp=$waittime; waittime=$slowwait; fi
-		elif [[ $slowgoing == 1 ]]; then
-			if [[ -n $slowwait ]]; then waittime=$waitbkp; fi
+			if [[ -n $slowwait ]]; then old waittime save; waittime=$slowwait; fi
+
+		elif now slowgoing && not slowerror; then
+			if [[ -n $slowwait ]]; then waittime=$(old waittime get); fi
 			if not slowerror; then
 				slowgoing=0
 				writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
@@ -2311,8 +2289,7 @@ while true; do
 	idlebreak=0
 	precheck_status=""
 	broken=0
-	reset broken
-	reset testing
+	testing=0
 	startupdetect=0
 	slowerror=0
 done
