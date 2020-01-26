@@ -10,9 +10,9 @@ If slow speed (defined by user) is detected, then runs a number of download and 
 
 ## Dependencies
 
-**bash** (v4.4 or later). Script functionality might brake with earlier versions  
+**bash** (v4.4 or later) Script functionality might brake with earlier versions  
 
-**[Python 3](https://www.python.org/downloads)** Needed for speedtest-cli, grc and getIdle.  
+**[Python 3](https://www.python.org/downloads)** (v3.7 or later) Needed for speedtest-cli, grc and getIdle.  
 
 **[speedtest](https://www.speedtest.net/apps/cli)** Official speedtest client from Ookla, needs to be in path or defined in config
 
