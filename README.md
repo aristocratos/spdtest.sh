@@ -1,7 +1,8 @@
 # spdtest.sh
 
 **Version:** 0.2.0  
-**Usage:** Bash (+ some python) script with UI for testing internet speed reability
+**Usage:** Script with UI for testing internet speed reability
+**Language:** Bash & Python
 
 ## Description
 
