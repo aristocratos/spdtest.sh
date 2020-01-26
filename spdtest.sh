@@ -88,7 +88,6 @@ declare -x colorize_input
 grc_err=0
 getIdle_err=0
 if [[ -z $DISPLAY ]]; then declare -x DISPLAY=":0"; fi
-ulimit -s 65536
 startup=1
 forcetest=0
 detects=0
@@ -119,6 +118,7 @@ logfile=""
 buffsize=0
 buffpos=0
 buffpid=""
+ip_address=""
 pause_override=0
 trace_msg=""
 scroll_symbol=""
@@ -159,7 +159,7 @@ timer_array=(
 	)
 width=$(tput cols)
 height=$(tput lines)
-precheck_status=""
+precheck_ok=0
 precheck_samplet=${precheck_samplet:-5}
 mtr_internal_max=${mtr_internal_max:-$numslowservers}
 declare -a routelista; declare -a routelistb; declare -a routelistc
@@ -323,19 +323,15 @@ count=more
 regexp=(UP=)
 colours=bold red
 count=more
-======
-# Less title
-regexp=(Viewing).*(= Help)
-colours=bold white
-count=more
 EOF
 
 #? End variables -------------------------------------------------------------------------------------------------------------------->
 
 if [[ -z $ookla_speedtest ]]; then ookla_speedtest="speedtest"; fi
-if [[ ! $(speedtest -V | head -n1) =~ "Speedtest by Ookla" ]]; then
+if [[ ! $($ookla_speedtest -V | head -n1) =~ "Speedtest by Ookla" ]]; then
 	echo "ERROR: Ookla speedtest client not found!"; exit 1
 fi
+if ! command -v python3 >/dev/null 2>&1; then echo "ERROR: Python 3 not found!"; exit 1; fi
 
 if [[ $mtr == "true" ]] && ! command -v mtr >/dev/null 2>&1; then mtr="false"; fi
 
@@ -422,7 +418,7 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			echo -e "USAGE: $0 [OPTIONS]"
 			echo ""
 			echo -e "OPTIONS:"
-			echo -e "\t-t, --test num              Runs full test 1 or <x> number of times and quits"
+			echo -e "\t-t, --test [num]            Runs full test 1 or <x> number of times and quits"
 			echo -e "\t-u, --unit mbit/mbyte       Which unit to show speed in, valid units are mbit or mbyte [default: mbit]"
 			echo -e "\t-s, --slow-speed speed      Defines what speed in defined unit that will trigger more tests"
 			echo -e "\t-n, --num-servers num       How many of the closest servers to get from speedtest.net"
@@ -486,12 +482,15 @@ else
 	unset is_good good_device
 fi
 
+ip_address=$(ip addr show "$net_device" | grep 'inet '| sed -r "s/.*inet\s([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*).*/\1/")
+if ! ping -qc1 -I "$net_device" -w1 "$ip_address" > /dev/null 2>&1; then echo "Could not get IP address for interface $net_device"; exit 1; fi
+
 if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
 	precheck_ssh="${precheck_ssh_user}@${precheck_ssh_host}"
-	if ! ping -qc1 -w5 "$precheck_ssh_host" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh\""; exit 1; fi
+	if ! ping -qc1 -I "$net_device" -w5 "$precheck_ssh_host" > /dev/null 2>&1; then echo "Could not reach remote machine \"$precheck_ssh_host\""; exit 1; fi
 	ssh_socket="$temp/spdtest.ssh_socket.$$"
 	ssh -fN -o 'ControlMaster=yes' -o 'ControlPersist=1h' -S "$ssh_socket" "$precheck_ssh"
-	if ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then echo "Could not connect to remote machine \"$precheck_ssh\""; exit 1; fi
+	if ! ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then echo "Could not connect to remote machine \"$precheck_ssh_host\""; exit 1; fi
 	if [[ $precheck_ssh_nd == "auto" || -z $precheck_ssh_nd ]]; then
 		precheck_ssh_nd=$(ssh -S "$ssh_socket" "$precheck_ssh" 'ip route')
 		precheck_ssh_nd=$(echo "$precheck_ssh_nd" | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
@@ -768,8 +767,9 @@ while 1:
 			else:
 				raise
 EOF
-	grc_err=$((grc_err+$?))
-	if [[ $grc_err -ne 0 ]]; then echo -e "$input"; fi
+	local status=$?
+	grc_err=$((grc_err+status))
+	if ((status!=0)); then echo -e "$input"; fi
 }
 
 contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
@@ -829,7 +829,7 @@ drawm() { #? Draw menu and title, arguments: <"title text"> <bracket color> <sle
 		echo -en "$main_menu"
 		tput cup "$titleypos" 0
 	elif ! now testing; then
-		echo -en "\e[1C$bgl${ul}${red}Q${reset}$bgr$bgl${ul}${yellow}M$bgr\e[1C"
+		echo -en "\e[1C${bgl}${ul}${red}Q${bgr}${bgl}${ul}${yellow}M${bgr}${bgl}${ul}${blue}H${bgr}\e[1C"
 	fi
 	
 	if now testing; then echo -en "${bold}\e[1C$bgl${ul}${yellow}C${reset}${bold}trl+${ul}${yellow}C$bgr\e[1C"; fi
@@ -916,7 +916,7 @@ getcspeed() { #? Get current $net_device bandwith usage, arguments: <"down"/"up"
 	else return; fi
 	svalue=$(getproc | sed "s/.*://" | awk "$awkline")
 	if [[ $3 == "get" ]]; then echo "$svalue"; return; fi
-	if [[ -n $3 && $3 != "get" ]]; then speed=$(echo "($svalue - $3) / $slp" | bc); echo $(((speed*unitop)>>20)); return; fi
+	if [[ -n $3 && $3 != "get" ]]; then speed=$(echo "($svalue - $3) / $slp" | bc); echo $(( (speed*unitop)>>20 )); return; fi
 	total=$((svalue))
 	sleep "$slp"
 	svalue=$(getproc | sed "s/.*://" | awk "$awkline")
@@ -1348,7 +1348,7 @@ class Speedtest(object):
 		if (servers or exclude) and not self.servers:
 			raise NoMatchedServers()
 		return self.servers
-speedtest = Speedtest()
+speedtest = Speedtest(source_address = '$ip_address')
 try:
 	speedtest.get_servers()
 except (ServersRetrievalError,) + HTTP_ERRORS:
@@ -1509,7 +1509,7 @@ inputwait() { #? Timer and input loop
 }
 
 internet() {
-	if ping -qc1 -w5 1.1.1.1 > /dev/null 2>&1 || ping -qc1 -w5 8.8.8.8 > /dev/null 2>&1; then
+	if ping -qc1 -I "$net_device" -w5 1.1.1.1 > /dev/null 2>&1 || ping -qc1 -I "$net_device" -w5 8.8.8.8 > /dev/null 2>&1; then
 		if [[ $1 == "down" ]]; then return 1; fi
 		return 0
 	else
@@ -1549,7 +1549,7 @@ menu() { #? Menu handler, no arguments returns 0 for shown menu, arguments: togg
 
 monitor_on() { if [[ $(xset -q) =~ "Monitor is On" ]]; then return 0; else return 1; fi; } #? Check if display is on with xset
 
-myip() { curl -s ipinfo.io/ip; } #? Get public IP
+myip() { curl --interface "$net_device" -s ipinfo.io/ip; } #? Get public IP
 
 not() { #? Multi function: Invert of now(), usage: not "var1" ["var2"] ...
 		#? can also be used to reverse return of function or program if first argument isn't a variable, usage: not "command" ["arg1"] ["arg2"] ...
@@ -1592,9 +1592,9 @@ now() { #? Returns true if one or multiple variables value is true, usage: now "
 
 old() { #? Save value or get value or compare a variable with saved value, usage: old "variable"  [save/get/same/notsame]
 	if [[ -z $1 ]]; then return; fi
-	local out var="$1"
+	local var="$1"
 	if [[ $2 == "save" ]]; then old_list[$var]="${!var}"; return
-	elif [[ $2 == "get" ]]; then echo -n "${old_list[$var]}"
+	elif [[ $2 == "get" ]]; then echo -n "${old_list[$var]}"; return
 	elif [[ $2 == "same" ]]; then
 		if [[ ${old_list[$var]} == "${!var}" ]]; then return 0
 		else return 1
@@ -1632,18 +1632,17 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 		if [[ $i -eq $ib ]]; then ib=$((ib+10)); dspeed=$(getcspeed "down" $((i/10)) "$sndvald"); uspeed=$(getcspeed "up" $((i/10)) "$sndvalu"); fi
 		echo -en "Checking bandwidth usage: ${bold}$(progress "$prc") ${green}DOWN=${white}$dspeed $unit ${red}UP=${white}$uspeed $unit${reset}         \r"
 		sleep 0.1
-		if now broken; then precheck_status="fail"; testing=0; tput el; tput el1; writelog 2 "\nWARNING: Precheck aborted!\n"; return; fi
+		if now broken; then testing=0; tput el; tput el1; writelog 2 "\nWARNING: Precheck aborted!\n"; return; fi
 	done
 	tput el
 	dspeed="$(getcspeed "down" $precheck_samplet "$sndvald")"
 	uspeed="$(getcspeed "up" $precheck_samplet "$sndvalu")"
 	if [[ $dspeed -lt $precheck_down && $uspeed -lt $precheck_up ]]; then
-		precheck_status="ok"
+		precheck_ok="1"
 		writelog 9 "Checking bandwidth usage: $(progress 100 "OK!") DOWN=$dspeed $unit UP=$uspeed $unit\r"
 		drawm "Checking bandwidth usage" "$green" 1
 		tput cuu1; tput el
 	else
-		precheck_status="fail"
 		writelog 9 "Checking bandwidth usage: $(progress 100 "FAIL!") DOWN=$dspeed $unit UP=$uspeed $unit\r"
 		drawm "Checking bandwidth usage" "$red" 1
 		tput cuu1
@@ -1714,7 +1713,7 @@ random() { #? Random/shuffle (number[s]) or (number[s] in array) or (value[s] in
 		#shellcheck disable=SC2016
 		local arr_int='${#'"$2"'[@]}'; eval arr_int="$arr_int"
 		if [[ $x == "*" ]] || ((x>arr_int)); then x=$arr_int; fi
-		echo -n "$(shuf -i 0-$((arr_int-1)) -n "$x" $rnd_src)"
+		echo -n "$(random int "0-$((arr_int-1))" "$x")"
 
 	elif [[ $1 == array_value && -n $2 ]]; then  #? Random value[s] from array, usage: random array_value "arrayname" ["amount"] ; use "*" as amount for all in random order
 		local i rnd; rnd=($(random array_int "$2" "$3"))
@@ -1752,7 +1751,7 @@ routetest() { #? Test routes with mtr
 
 	for i in "${routelistc[@]}"; do
 		echo "Routetest: ${routelistdesc[$i]} $i ($(date +%T))" | writelog 1
-		if ping -qc1 -w5 "$i" > /dev/null 2>&1; then
+		if ping -qc1 -I "$net_device" -w5 "$i" > /dev/null 2>&1; then
 			drawm "Running route test..." "$green"
 			
 			if [[ ${routelistport[$i]} == "auto" || ${routelistport[$i]} == "null" || -z ${routelistport[$i]} ]]; then port=""
@@ -1932,6 +1931,10 @@ testspeed() { #? Using official Ookla speedtest client
 		#? ------------------------------------Checks--------------------------------------------------------------
 		if now broken; then break; fi
 		if [[ $mode == "full" ]]; then wait $speedpid || true; fi
+		if now slowerror; then
+			if [[ -z $down_speed ]]; then warnings="ERROR: Could not test server!"
+			else warnings="ERROR: Test ended early!"; fi
+		fi
 
 		if [[ $mode == "full" && $stype == "result" ]] && not slowerror; then
 			speedstring=$(jq -c 'select(.type=="result")' $speedfile || true)
@@ -1964,10 +1967,9 @@ testspeed() { #? Using official Ookla speedtest client
 			((++tests))
 		
 		elif [[ $mode == "full" ]] && now slowerror; then
-			warnings="ERROR: Test ended early!"
 			printf "\r"; tput el
-			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
-			if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; return; fi
+			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "100" "FAIL!")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
+			if internet down; then writelog 1 "ERROR: Can't reach the internet, aborting tests!\n"; testing=0; break; fi
 			slowerror=0
 			((++tests))
 		
@@ -1997,7 +1999,7 @@ testspeed() { #? Using official Ookla speedtest client
 			((++err_retry))
 			errorlist+=("$tl")
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
-			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  ERROR: Test ended early!" | writelog 2
+			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress "100" "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  $warnings" | writelog 2
 			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; break; fi
 			if ((err_retry<max_err_retry)); then
 				tl2=$tl
@@ -2249,7 +2251,7 @@ z_main_loop() {
 		if not forcetest startupdetect; then
 			if now precheck; then
 				precheck_speed
-				if [[ $precheck_status = "fail" ]]; then return; fi
+				if not precheck_ok; then return; fi
 			fi
 			testspeed "down"
 		fi
@@ -2272,7 +2274,7 @@ z_main_loop() {
 			if [[ -n $slowwait ]]; then old waittime save; waittime=$slowwait; fi
 
 		elif now slowgoing && not slowerror; then
-			if [[ -n $slowwait ]]; then waittime=$(old waittime get); fi
+			if [[ -n $slowwait ]] && old waittime notsame; then waittime=$(old waittime get); fi
 			if not slowerror; then
 				slowgoing=0
 				writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
@@ -2287,7 +2289,7 @@ z_main_loop() {
 while true; do
 	z_main_loop
 	idlebreak=0
-	precheck_status=""
+	precheck_ok=0
 	broken=0
 	testing=0
 	startupdetect=0
