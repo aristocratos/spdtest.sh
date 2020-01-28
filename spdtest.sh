@@ -15,12 +15,10 @@ aa_TODOs() { echo -n;
 # TODO fix up README.md
 # TODO extern config and save to config?
 # TODO ssh controlmaster, server, client
-# TODO grc function in bash function?
-# TODO grc, grc.conf, speedtest and speedtest-cli to /dev/shm ?
 # TODO buffer logview
 # TODO route test menu, choose host to test
-# TODO windows: help, options, route, timer   <----------------------
-# TODO plot speedgraphs overtime in UI
+# TODO windows: help, options, route, timer
+# TODO plot speedgraphs overtime in UI    <----------------------
 # TODO stat file
 
 }
@@ -71,7 +69,7 @@ startuptest="false"		#* If "true" and paused="false", tests speed at startup bef
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
 testnum=1				#* Number of times to loop full tests in testonly mode
 
-trace_errors="true" #? Remove!
+trace_errors="true" #! Remove!
 
 ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
 spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
@@ -2083,7 +2081,7 @@ writelog() { #? Write to logfile, buffer and send to colorize()
 	if not testonly && (($1<=8 & loglevel!=103)); then buffer add "$input"; fi
 }
 
-x_debug1() { #* Remove
+x_debug1() { #! Remove
 	drawm
 	startup=0
 	loglevel=0
@@ -2213,7 +2211,7 @@ if now trace_errors || now debug; then
 fi
 
 if now buffer_save && [[ -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
-if now debug; then x_debug1; fi #* Remove
+if now debug; then x_debug1; fi #! Remove
 
 #writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
 
