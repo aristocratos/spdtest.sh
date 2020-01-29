@@ -1754,7 +1754,6 @@ routetest() { #? Test routes with mtr
 			
 			if [[ ${routelistport[$i]} == "auto" || ${routelistport[$i]} == "null" || -z ${routelistport[$i]} ]]; then port=""
 			else port="-P ${routelistport[$i]}"; fi
-			# shellcheck disable=SC2086
 			mtr -wbc "$mtrpings" -I "$net_device" $port "$i" > "$routefile" &
 			routepid="$!"
 			
