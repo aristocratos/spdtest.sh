@@ -1550,7 +1550,7 @@ monitor_on() { if [[ $(xset -q) =~ "Monitor is On" ]]; then return 0; else retur
 myip() { curl --interface "$net_device" -s ipinfo.io/ip; } #? Get public IP
 
 not() { #? Multi function: Invert of now(), usage: not "var1" ["var2"] ...
-		#? can also be used to reverse return of function or program if first argument isn't a variable, usage: not "command" ["arg1"] ["arg2"] ...
+		#? can also be used to reverse the exit status of a command if first argument isn't a variable, usage: not "command" ["arg1"] ["arg2"] ...
 	if [[ -z $1 ]]; then return; fi
 
 	if [[ -z ${!1+x} ]]; then
@@ -1585,10 +1585,10 @@ now() { #? Multi function: Returns true if one or multiple variables value is tr
 	fi
 
 	local var="$1"
-	if [[ -z ${!var} || ${!var} =~ 0|false|False|FALSE ]]; then
+	if [[ -z ${!var} || ${!var} =~ ^(0|false|False|FALSE)$ ]]; then
 		#if [[ -n ${!var} ]] && wasnt "$var"; then reset "$var"; fi
 		return 1
-	elif [[ ${!var} =~ 1|true|True|TRUE ]]; then
+	else
 		#if wasnt "$var"; then reset "$var"; fi
 		return 0
 	fi
