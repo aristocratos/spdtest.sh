@@ -1568,8 +1568,14 @@ not() { #? Multi function: Invert of now(), usage: not "var1" ["var2"] ...
 	if now "$1"; then return 1; else return 0; fi
 }
 
-now() { #? Returns true if one or multiple variables value is true, usage: now "var1" ["var2"] ...
+now() { #? Multi function: Returns true if one or multiple variables value is true, usage: now "var1" ["var2"] ...
+		#? can also be used to return the exit status of a command if first argument isn't a variable, usage: now "command" ["arg1"] ["arg2"] ...
 	if [[ -z $1 ]]; then return; fi
+	
+	if [[ -z ${!1+x} ]]; then
+		if "$@" 2> /dev/null; then return 0; else return 1; fi
+	fi
+
 	if [[ "$#" -gt 1 ]]; then
 		local i x=0
 		for i in "$@"; do
