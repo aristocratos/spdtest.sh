@@ -1853,8 +1853,9 @@ testspeed() { #? Using official Ookla speedtest client
 	while ((tests<=max_tests)); do #? Test loop start ------------------------------------------------------------------------------------>
 		down_speed=""; down_progress=""; elapsed=""; elapsed2=""; up_speed=""; up_progress=""
 		if [[ $mode == "full" ]]; then
+			writelog 1 " "
 			if not slowgoing forcetest testonly; then
-				writelog 1 "\n<---------------------------------------Slow speed detected!---------------------------------------->"
+				writelog 1 "<---------------------------------------Slow speed detected!---------------------------------------->"
 				slowgoing=1
 			fi
 			if ((tests==0)); then
