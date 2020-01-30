@@ -1710,7 +1710,6 @@ random() { #? Random/shuffle (number[s]) or (number[s] in array) or (value[s] in
 	if [[ $1 == int && -n $2 ]]; then #? Random number[s], usage: random int "start-end" ["amount"]
 		if [[ ! $2 =~ "-" ]]; then return; fi
 		if ((${2%-*}>=${2#*-})); then return; fi
-		if ((x>${2#*-}-${2%-*})); then x=$((${2#*-}-${2%-*})); fi
 		echo -n "$(shuf -i "$2" -n "$x" $rnd_src)"
 
 	elif [[ $1 == array_int && -n $2 ]]; then #? Random number[s] between 0 and array size, usage: random array_int "arrayname" ["amount"] ; use "*" as amount for all in random order
@@ -1722,7 +1721,7 @@ random() { #? Random/shuffle (number[s]) or (number[s] in array) or (value[s] in
 	elif [[ $1 == array_value && -n $2 ]]; then  #? Random value[s] from array, usage: random array_value "arrayname" ["amount"] ; use "*" as amount for all in random order
 		local i rnd; rnd=($(random array_int "$2" "$3"))
 		for i in "${rnd[@]}"; do
-		local arr_value="${2}[$i]"
+		local arr_value="${2}[$((i-1))]"
 		echo "${!arr_value}"
 		done
 	fi
@@ -2087,6 +2086,7 @@ writelog() { #? Write to logfile, buffer and send to colorize()
 	if not testonly && (($1<=8 & loglevel!=103)); then buffer add "$input"; fi
 }
 
+#debug="true"
 x_debug1() { #! Remove
 	drawm
 	startup=0
@@ -2102,6 +2102,23 @@ x_debug1() { #! Remove
 	mtr_internal_ok="true"
 	# mtr_internal_max=""
 	getservers
+
+	# for((xint=0;xint<${#testlista[@]};xint++)); do
+	# 	echo "$xint. ${testlista[$xint]}"
+	# done
+	korv=($(random array_value "testlista" "*"))
+	for((i=0;i<=30;i++)); do
+	numx=${korv[$i]}
+	echo "$i. ${korv[$i]} ${testlistdesc[${korv[$i]}]}"
+	done
+
+	random array_value testlista
+	random array_int testlista
+
+	read -rsn 1 || true
+	ctrl_c
+
+
 	while true; do
 		key=""
 		while [[ -z $key ]]; do
