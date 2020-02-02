@@ -1880,7 +1880,7 @@ precheck_speed() { #? Check current bandwidth usage before slowcheck
 		writelog 9 "Checking bandwidth usage: $(progress 100 "FAIL!") DOWN=$dspeed $unit UP=$uspeed $unit\r"
 		drawm "Checking bandwidth usage" "$red" 1
 		tput cuu1
-		writelog 2 "WARNING: Testing blocked, current bandwidth usage: DOWN=$dspeed $unit UP=$uspeed $unit ($(date +%Y-%m-%d\ %T))"
+		writelog 2 "WARNING: Testing blocked, current bandwidth usage: DOWN=$dspeed $unit UP=$uspeed $unit  $(date +%T\ \(%Y-%m-%d\))"
 	fi
 	testing=0
 	#drawm
@@ -2284,7 +2284,7 @@ toggle() { #? Toggle a variables true or false state
 traperr() {
 	local match len trap_muted err="${BASH_LINENO[0]}"
 
-	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> misc/errors; fi
+	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> "$HOME/spdtest/misc/errors"; fi
 	len=$((${#trace_array[@]}))
 	if ((len-->=1)); then
 		while ((len>=${#trace_array[@]}-2)); do		
@@ -2295,7 +2295,7 @@ traperr() {
 		fi
 	fi
 	trace_array+=("$err")
-	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "misc/errors"
+	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "$HOME/spdtest/misc/errors"
 	
 }
 
