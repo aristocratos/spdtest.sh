@@ -56,10 +56,11 @@ loglevel=2				#* 0 : No logging
 						#* 2 : Also log slow speed check
 						#* 3 : Also log server updates
 						#* 4 : Log all including forced tests
+logdir="$HOME/spdtest.sh-logs" #* Logfile save directory
 quiet_start="true"		#* If "true", don't print serverlist and routelist at startup
-maxlogsize="1024"		#* Max logsize (in kilobytes) before log is rotated
-# logcompress="gzip"	#* Command for compressing rotated logs, disabled if not set
-# logname=""			#* Custom logfile (full path), if a custom logname is set, log rotation is disabled
+maxlogsize="1024"		#* Max logsize (in kilobytes) before log is split
+logcompress="gzip"		#* Command for compressing logs, only log splits beyond the last split is compressed, disabled if not set
+# custom_log=""			#* Custom logfile (full path), if a custom logfile is set log splitting is disabled
 max_buffer="1000"		#* Max number of lines to buffer in internal scroll buffer
 buffer_save="true"		#* Save buffer to disk on exit and restore on start
 mtr="true"				#* Set "false" to disable route testing with mtr, automatically set to "false" if mtr is not found in PATH
@@ -390,7 +391,7 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			else argumenterror "missing" "$1"; fi
 		;;
 		-lf|--log-file)
-			if [[ -n $2 && ${2::1} != "-" ]]; then logname="$2"; shift
+			if [[ -n $2 && ${2::1} != "-" ]]; then custom_log="$2"; shift
 			else argumenterror "missing" "$1"; fi
 		;;
 		-i|--interface)
@@ -1409,7 +1410,7 @@ graph() { #? Control function for all graph functions, usage: graph [on/off/redr
 
 	if not graph_on; then return; fi
 
-	if [[ $1 == "off" ]] || ((width<80)) || ((height<15)); then
+	if [[ $1 == "off" ]] || ((width<80)) || ((height<17)); then
 		graph_on=0
 		unset 'g_speed[@]'
 		unset 'g_unit[@]'
@@ -1658,7 +1659,7 @@ inputwait() { #? Timer and input loop
 				t|T) 
 					toggle timer_menu
 					old paused save; old menu_status save
-					if not paused; then toggle pausetoggled; else gen_menu; fi
+					if not paused; then toggle pausetoggled; else gen_menu; if now graph; then graph redraw; fi; fi
 					if not menu; then menu toggle; else drawm; fi
 					;;
 				m|M) menu toggle ;;
@@ -1685,6 +1686,7 @@ inputwait() { #? Timer and input loop
 			assasinate "$secpid"
 			gen_menu
 			drawm
+			if now timer_menu graph; then graph redraw; fi
 		elif (now paused pausetoggled) || (now paused displaypause && not monitor_on); then
 			if now pausetoggled; then toggle pause_override; else pause_override=0; fi
 			paused="false"
@@ -1722,23 +1724,36 @@ internet() {
 	fi
 }
 
-logrotate() { #? Rename logfile, compress and create new if size is over $logsize
-	if [[ -n $logname ]]; then
-		logfile="$logname"
-		unset logname
-		touch "$logfile"
+logsplit() { #? Rename logfile, compress and create new if size is over $logsize
+	if ((loglevel==0)); then if not logfile; then logfile="/dev/null"; fi; return; fi
+	local x i size outlog
+	if [[ -n $custom_log ]]; then
+		logfile="$custom_log"
+		unset custom_log
+		touch "$logfile" || writelog 1 "ERROR: Could not write to custom logfile! Exiting!"; sleep 3; ctrl_c
 	else
-		if not logfile; then logfile="log/spdtest.log"; fi
-		if ((loglevel==0)); then return; fi
-		if [[ ! -d log ]]; then mkdir log; fi
+		if not logfile; then 
+			if not logdir; then logdir="$HOME/spdtest.sh-logs/"
+			elif [[ ${logdir:(-1)} != "/" ]]; then logdir="${logdir}/"; fi
+			if [[ ! -e $logdir ]]; then mkdir -p "$logdir" || writelog 1 "ERROR: Could not create log directory! Exiting!"; sleep 3; ctrl_c; fi
+			if [[ ! -w $logdir ]]; then writelog 1 "ERROR: Could not write to log directory! Exiting!"; sleep 3; ctrl_c; fi
+			logfile="${logdir}spdtest.log"
+		fi
 		touch $logfile
-		logsize=$(du $logfile | tr -s '\t' ' ' | cut -d' ' -f1)
-		if ((logsize>maxlogsize)); then
-			ts=$(date +%y-%m-%d-T:%H:%M)
-			mv $logfile "log/spdtest.$ts.log"
-			touch $logfile
-			# shellcheck disable=SC2154
-			if [[ -n $logcompress ]]; then $logcompress "log/spdtest.$ts.log"; fi
+		if (($(du $logfile | tr -s '\t' ' ' | cut -d' ' -f1)>maxlogsize)); then
+			if  [[ -e "${logdir}spdtest.log.1" ]] && (($(du "${logdir}spdtest.log.1" | tr -s '\t' ' ' | cut -d' ' -f1)>(maxlogsize/2)+(maxlogsize/10) )); then
+				while ls "${logdir}spdtest.log.$((++x))" > /dev/null 2>&1 ; do : ; done; ((x--))
+				for((i=x;i>=1;i--)); do
+					mv "${logdir}spdtest.log.$i" "${logdir}spdtest.log.$((i+1))"
+				done
+			fi	
+			size=$(wc -l <$logfile)
+			head -n $((size/2)) "$logfile" >> "${logdir}spdtest.log.1"
+			tail -n +$(( (size/2)+1 )) "$logfile" > "${logdir}tmp"
+			rm -f "$logfile"
+			mv "${logdir}tmp" "$logfile"
+
+			if [[ -n $logcompress && -e "${logdir}spdtest.log.2" ]]; then $logcompress "${logdir}spdtest.log.2"; fi
 		fi
 	fi
 }
@@ -2408,7 +2423,7 @@ if now genservers; then #? Gets servers, write to file and quit if -gs or --gen-
 	exit $stat
 fi
 
-logrotate
+logsplit
 if [[ ! -w $logfile ]] && ((loglevel!=0)); then echo "ERROR: Couldn't write to logfile: $logfile"; exit 1; fi
 
 deliver "$speedfile" "$routefile"
@@ -2485,7 +2500,7 @@ z_main_loop() {
 	fi
 
 	if not idlebreak; then
-		logrotate
+		logsplit
 
 		if not forcetest startupdetect; then
 			if now precheck; then
