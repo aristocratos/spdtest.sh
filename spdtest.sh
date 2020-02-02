@@ -1479,16 +1479,16 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 	if ((op>=5)); then op=1; else op=8; fi
 	p_symbols=$((max_speed/10))
 	tput sc
-	tput cup $ypos $xpos; echo -en "${graph_box[0]}"
+	tput cup $ypos $xpos; echo -en "${dark}${graph_box[0]}"
 	tput cup $((ypos+1)) $xpos; echo -en "${graph_box[1]}"
-	tput cup $((ypos+1)) $((xpos+2)); echo -en "${bold}Mbps${reset}"
+	tput cup $((ypos+1)) $((xpos+2)); echo -en "${reset}${bold}Mbps${reset}"
 	for((i=0;i<10;i++)); do
-		tput cup $((ypos+i+2)) $xpos; echo -en "${graph_box[2]}"
+		tput cup $((ypos+i+2)) $xpos; echo -en "${dark}${graph_box[2]}"
 	done
 	yposb=$((ypos+i+4))
 	tput cup $((yposb-2)) $xpos; echo -en "${graph_box[3]}"
 	tput cup $((yposb-1)) $xpos; echo -en "${graph_box[1]}"
-	tput cup $((yposb)) $xpos; echo -en "${graph_box[4]}"
+	tput cup $((yposb)) $xpos; echo -en "${graph_box[4]}${reset}"
 
 	
 	if [[ $1 == create ]]; then
@@ -1500,10 +1500,10 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 			elif ((max_text<(slowspeed*op)*2)); then color="${bright_yellow}"
 			else color="${bright_green}"; fi
 			if [[ $max_text != "$max_text_b" ]]; then
-				graph_array[$i]="$(spaces $((5-${#max_text})) )${bold}${white}$max_text${reset}⡇$color"
+				graph_array[$i]="$(spaces $((5-${#max_text})) )${bold}${white}$max_text${reset}${dark}⡇${reset}$color"
 				max_text_b=max_text
 			else
-				graph_array[$i]="$(spaces 5)${reset}⡇$color"
+				graph_array[$i]="$(spaces 5)${reset}${dark}⡇${reset}$color"
 			fi	
 		done
 
