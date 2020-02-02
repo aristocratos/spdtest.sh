@@ -8,21 +8,6 @@
 # shellcheck disable=SC2120 # function argument warnings
 # shellcheck disable=SC2004
 
-aa_TODOs() { echo -n;
-
-# TODO Fix argument parsing and error messages
-# TODO Change slowtest to multiple servers and compare results
-# TODO fix wrong keypress in inputwait, esc codes etc
-# TODO fix up README.md
-# TODO extern config and save to config?
-# TODO ssh controlmaster, server, client
-# TODO buffer logview
-# TODO route test menu, choose host to test
-# TODO windows: help, options, route, timer
-# TODO plot speedgraphs overtime in UI    <----------------------
-# TODO stat file
-
-}
 #?> Start variables ------------------------------------------------------------------------------------------------------------------>
 aa_variables() { echo -n; }
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
@@ -2284,7 +2269,7 @@ toggle() { #? Toggle a variables true or false state
 traperr() {
 	local match len trap_muted err="${BASH_LINENO[0]}"
 
-	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> "$HOME/spdtest/misc/errors"; fi
+	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> "errors"; fi
 	len=$((${#trace_array[@]}))
 	if ((len-->=1)); then
 		while ((len>=${#trace_array[@]}-2)); do		
@@ -2295,7 +2280,7 @@ traperr() {
 		fi
 	fi
 	trace_array+=("$err")
-	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "$HOME/spdtest/misc/errors"
+	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "errors"
 	
 }
 
