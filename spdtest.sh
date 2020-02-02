@@ -6,6 +6,7 @@
 # shellcheck disable=SC2119 # function warnings
 # shellcheck disable=SC2086 # double quoute warning
 # shellcheck disable=SC2120 # function argument warnings
+# shellcheck disable=SC2004
 
 aa_TODOs() { echo -n;
 
@@ -25,7 +26,7 @@ aa_TODOs() { echo -n;
 #?> Start variables ------------------------------------------------------------------------------------------------------------------>
 aa_variables() { echo -n; }
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
-unit="mbit"				#* Valid values are "mbit" and "mbyte"
+unit="megabit"			#* Default speed value to use, valid values are "megabit" and "megabyte"
 slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
 numservers="30"			#* How many of the closest servers to get from speedtest.net, used as random pool of servers to test against
 slowretry="1"			#* When speed is below slowspeed, how many retries of random servers before running full tests
@@ -39,14 +40,17 @@ precheck_ssh_host="192.168.1.1" #* If set, precheck will fetch data from /proc/n
 						#* remote machine needs to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
 						#* copy SSH keys to remote machine if you don't want to be asked for password at start, guide: https://www.ssh.com/ssh/copy-id
 precheck_ssh_user="admin" #* Username for ssh connection
-precheck_ssh_nd="auto"  #* Net device on remote machine to get speeds from, set to auto if unsure
-waittime="00:15:00"		#* Default wait timer between slow checks, format: "HH:MM:SS"
-slowwait="00:05:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
+precheck_ssh_nd="auto"  #* Network interface on remote machine to get speeds from, set to "auto" if unsure
+waittime="00:20:00"		#* Default wait timer between slowchecks, format: "HH:MM:SS"
+slowwait="00:10:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
 idle="false"			#* If "true", resets timer if keyboard or mouse activity is detected in XServer
 # idletimer="00:30:00"	#* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
 						#* any X Server activity resets back to idletimer, format: "HH:MM:SS"
 displaypause="false"	#* If "true" automatically pauses timer when display is on, unpauses when off, overrides idle="true" if set, needs xset to work
+paused="false"			#* If "true", the timer is paused at startup, ignored if displaypause="true"
+startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
 main_menu_start="shown" #* The status of the main menu at start, possible values: "shown", "hidden"
+graph_start="shown"		#* The status of the speed graph at start, possible values: "shown", "hidden"
 loglevel=2				#* 0 : No logging
 						#* 1 : Log only when slow speed has been detected
 						#* 2 : Also log slow speed check
@@ -56,20 +60,19 @@ quiet_start="true"		#* If "true", don't print serverlist and routelist at startu
 maxlogsize="1024"		#* Max logsize (in kilobytes) before log is rotated
 # logcompress="gzip"	#* Command for compressing rotated logs, disabled if not set
 # logname=""			#* Custom logfile (full path), if a custom logname is set, log rotation is disabled
-max_buffer="1000"		#* Max number of lines to buffer in internal scroll buffer, set to 0 to disable, disabled if use_shm="false"
+max_buffer="1000"		#* Max number of lines to buffer in internal scroll buffer
 buffer_save="true"		#* Save buffer to disk on exit and restore on start
 mtr="true"				#* Set "false" to disable route testing with mtr, automatically set to "false" if mtr is not found in PATH
-mtr_internal="true"		#* Use hosts from full test in mtr test
-mtr_internal_ok="false"	#* Use hosts from full test with speeds above $slowspeed, set to false to only test hosts with speed below $slowspeed
-# mtr_internal_max=""	#* Set max hosts to add from internal list
+mtr_internal="true"		#* Use hosts from full test with speeds below $slowspeed in mtr test
+mtr_internal_ok="false"	#* Use hosts from full test with speeds above $slowspeed in mtr test
+# mtr_internal_max=""	#* Set max hosts to add from full test
 mtr_external="false"	#* Use hosts from route.cfg.sh, see route.cfg.sh.sample for formatting
 mtrpings="25"			#* Number of pings sent with mtr
-paused="false"			#* If "true", the timer is paused at startup, ignored if displaypause="true"
-startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
 testnum=1				#* Number of times to loop full tests in testonly mode
 
 trace_errors="true" #! Remove!
+
 
 ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
 spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
@@ -130,6 +133,16 @@ main_menu_len=0
 menu_status=0
 proc_nd=""
 timer_menu=0
+declare -a g_speed g_unit g_date g_time graph_array
+graph_max_speed=0
+graph_scroll=0
+graph_len=0
+graph_on=0
+graph_box+=("┌──────────────────────────────────────────────────────────────────────────────┐")
+graph_box+=("│                                                                              │")
+graph_box+=("│     ⡇                                                                        │")
+graph_box+=("│     ⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒  │")
+graph_box+=("└──────────────────────────────────────────────────────────────────────────────┘")
 #? Menu format "Text".<underline position>."color"
 menu_array=(
 	"Quit.1.red"
@@ -142,6 +155,7 @@ menu_array=(
 	"Force test.1.cyan"
 	"Update servers.1.magenta"
 	"Clear buffer.1.yellow"
+	"Graph.1.green"
 	)
 if command -v less >/dev/null 2>&1; then less="true"; menu_array+=("View log.1.cyan"); else less="false"; fi
 timer_array=(
@@ -189,6 +203,15 @@ blue="\e[34m"
 magenta="\e[35m"
 cyan="\e[36m"
 white="\e[37m"
+
+bright_black="\e[30;90m"
+bright_red="\e[31;91m"
+bright_green="\e[32;92m"
+bright_yellow="\e[33;93m"
+bright_blue="\e[34;94m"
+bright_magenta="\e[35;95m"
+bright_cyan="\e[36;96m"
+bright_white="\e[37;97m"
 
 bgr="${reset}${dark}├${reset}${bold}"
 bgl="${reset}${dark}┤${reset}${bold}"
@@ -355,7 +378,7 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			testnum=${testnum:-1}
 		;;
 		-u|--unit)
-			if [[ $2 == "mbyte" || $2 == "mbit" ]]; then unit="$2"; shift
+			if [[ $2 == "megabyte" || $2 == "megabit" ]]; then unit="$2"; shift
 			else argumenterror "wrong" "$1" "$2"; fi	
 		;;
 		-s|--slow-speed)
@@ -417,7 +440,7 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			echo ""
 			echo -e "OPTIONS:"
 			echo -e "\t-t, --test [num]            Runs full test 1 or <x> number of times and quits"
-			echo -e "\t-u, --unit mbit/mbyte       Which unit to show speed in, valid units are mbit or mbyte [default: mbit]"
+			echo -e "\t-u, --unit megabit/megabyte Which unit to show speed in, [default: megabit]"
 			echo -e "\t-s, --slow-speed speed      Defines what speed in defined unit that will trigger more tests"
 			echo -e "\t-n, --num-servers num       How many of the closest servers to get from speedtest.net"
 			echo -e "\t-i, --interface name        Network interface being used [default: auto]"
@@ -456,7 +479,7 @@ done
 
 
 if ((loglevel>4)); then loglevel=4; fi
-if [[ $unit = "mbyte" ]]; then unit="MB/s"; unitop="1"; else unit="Mbps"; unitop="8"; fi
+if [[ $unit = "megabyte" ]]; then unit="MB/s"; unitop="1"; else unit="Mbps"; unitop="8"; fi
 if [[ $displaypause == "true" ]]; then idle="false"; fi
 
 
@@ -571,6 +594,7 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 		scrolled=0
 		tput cup $buffpos 0; tput ed
 		drawscroll
+		if now graph; then graph redraw; fi
 		return
 	fi
 
@@ -581,6 +605,7 @@ buffer() { #? Buffer control, arguments: add/up/down/pageup/pagedown/redraw/clea
 	echo -e "$buffout"
 	if now testing; then echo; fi
 	drawscroll
+	if now graph; then graph redraw; fi
 
 	#sleep 0.001
 }
@@ -1371,6 +1396,179 @@ for _, servers in sorted(speedtest.servers.items()):
 EOF
 }
 
+graph() { #? Control function for all graph functions, usage: graph [on/off/redraw/left/right]
+	if [[ -z $1 ]]; then if now graph_on; then return 0; else return 1; fi; fi
+	
+	if [[ $1 == "on" ]] && ((width>=80 & height>=15)); then
+		if [[ ! -s "$logfile" && ! -s "$bufferfile" ]]; then drawm "No data to create graph!" "$red" 2; drawm; return; fi
+		graph_on=1
+		graph_collect init
+		graph_draw create
+		return
+	fi
+
+	if not graph_on; then return; fi
+
+	if [[ $1 == "off" ]] || ((width<80)) || ((height<15)); then
+		graph_on=0
+		unset 'g_speed[@]'
+		unset 'g_unit[@]'
+		unset 'g_date[@]'
+		unset 'g_time[@]'
+		unset graph_max_speed
+		unset graph_len
+		unset 'graph_array[@]'
+		graph_scroll=0
+		buffer redraw
+	elif [[ $1 == "add" ]]; then
+		graph_collect add
+		graph_draw create
+	elif [[ $1 == "redraw" ]]; then
+		graph_draw
+	elif [[ $1 == "left" ]] && ((graph_scroll<graph_len-70)); then
+		graph_scroll=$((graph_scroll+70))
+		if ((graph_scroll>graph_len-70)); then graph_scroll=$((graph_len-70)); fi
+		graph_draw create
+	elif [[ $1 == "right" ]] && ((graph_scroll>0)); then
+		graph_scroll=$((graph_scroll-70))
+		if ((graph_scroll<0)); then graph_scroll=0; fi
+		graph_draw create
+	fi
+}
+
+graph_collect() { #? Collect data for graph 
+	if [[ -z $1 ]]; then return; fi
+	local line max_speed inputcmd found x=$((graph_len+1))
+	if [[ $1 == "add" ]]; then max_speed=$graph_max_speed; inputcmd="tac $bufferfile"
+	elif [[ $1 == "init" ]] && ((loglevel==0)); then inputcmd="cat $bufferfile"
+	elif [[ $1 == "init" ]]; then inputcmd="cat $logfile"
+	else return; fi
+	while read -r line; do
+	if [[ ${line::4} == *[0-9]* && $line =~ Mbps|MB/s ]]; then
+		if [[ ! $line =~ ERROR ]]; then
+			found=1
+			if [[ $line =~ Attempt ]] && ((x>1)); then line=${line% <--*}; if [[ $1 == "init" ]]; then ((x--)); fi; fi
+			g_speed[$x]=${line%% M*} 
+			g_unit[$x]=${line%%  [*}; g_unit[$x]=${g_unit[$x]#${g_speed[$x]} }
+			if [[ ${g_unit[$x]} != "Mbps" ]]; then g_speed[$x]=$((g_speed[$x]*8)); fi
+			if ((g_speed[$x]>max_speed)); then max_speed=${g_speed[$x]}; fi
+			if [[ ${line:(-1)} == ")" ]]; then
+				g_date[$x]=${line:(-9):8}
+				g_time[$x]=${line:(-16):5}
+			else
+				g_date[$x]=${g_date[$((x-1))]}
+				g_time[$x]=${line:(-5)}
+			fi
+			((++x))
+		fi
+	fi
+	graph_len=${#g_unit[@]}
+	graph_max_speed=$max_speed
+	if [[ $1 == "add" ]] && ((found=1)); then break; fi
+	done <<< "$($inputcmd)"
+}
+
+graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw ["create"]
+	local i max_text max_text_b ypos=$((titleypos+1))
+	local p_symbols g_len cval sval sval_op op tp first_date second_date timeline da1 da2 color timeout time_x=9
+	local xpos=$((width-80))
+	local max_speed=$graph_max_speed
+	for((i=0;i<10;i++)); do
+		if [[ ${g_unit[$(random array_int g_unit)]} == "Mbps" ]]; then ((++op)); fi
+	done
+	if ((op>=5)); then op=1; else op=8; fi
+	p_symbols=$((max_speed/10))
+	tput sc
+	tput cup $ypos $xpos; echo -en "${graph_box[0]}"
+	tput cup $((ypos+1)) $xpos; echo -en "${graph_box[1]}"
+	tput cup $((ypos+1)) $((xpos+2)); echo -en "${bold}Mbps${reset}"
+	for((i=0;i<10;i++)); do
+		tput cup $((ypos+i+2)) $xpos; echo -en "${graph_box[2]}"
+	done
+	yposb=$((ypos+i+4))
+	tput cup $((yposb-2)) $xpos; echo -en "${graph_box[3]}"
+	tput cup $((yposb-1)) $xpos; echo -en "${graph_box[1]}"
+	tput cup $((yposb)) $xpos; echo -en "${graph_box[4]}"
+
+	
+	if [[ $1 == create ]]; then
+		tput cup $((ypos+5)) $((xpos+37)); echo -en "${bold}Loading..."
+		tput cup $((ypos+6)) $((xpos+35)); echo -en "$(progress 0 "" "${green}")${reset}"
+		for((i=0;i<10;i++)); do
+			max_text=$(echo "scale=1; $max_speed-($i*($max_speed/10))" |bc ); max_text=${max_text%.*}
+			if (( max_text<(slowspeed*op) )); then color="${bright_red}"
+			elif ((max_text<(slowspeed*op)*2)); then color="${bright_yellow}"
+			else color="${bright_green}"; fi
+			if [[ $max_text != "$max_text_b" ]]; then
+				graph_array[$i]="$(spaces $((5-${#max_text})) )${bold}${white}$max_text${reset}⡇$color"
+				max_text_b=max_text
+			else
+				graph_array[$i]="$(spaces 5)${reset}⡇$color"
+			fi	
+		done
+
+		if ((graph_len>70)); then g_width=70; else g_width=$graph_len; fi
+		for((ipos=0;ipos<g_width;ipos++)); do
+			sval=${g_speed[-$((70+graph_scroll-ipos))]}
+			if [[ -z $first_date ]]; then first_date=${g_date[-$((70+graph_scroll-ipos))]}; fi
+			if [[ -z $second_date && ${g_date[-$((70+graph_scroll-ipos))]} != "$first_date" ]]; then second_date=${g_date[-$((70+graph_scroll-ipos))]}
+			elif [[ -n $second_date && ${g_date[-$((70+graph_scroll-ipos))]} != "$second_date" ]]; then second_date=${g_date[-$((70+graph_scroll-ipos))]}; fi
+
+			if ((${ipos:(-1)}==0)); then tput cup $((ypos+6)) $((xpos+35)); echo -en "${bold}$(progress $((ipos*100/g_width)) "" "${green}")${reset}"; fi
+			sval_op=$sval
+			for((ih=9;ih>=0;ih--)); do
+				if ((sval_op<=0)); then graph_array[$ih]="${graph_array[$ih]} "
+				elif ((sval_op<=p_symbols)); then	
+					graph_array[$ih]="${graph_array[$ih]}$(graph_symbol $sval_op $p_symbols)"
+				else
+					graph_array[$ih]="${graph_array[$ih]}$(graph_symbol)"
+				fi
+				sval_op=$((sval_op-p_symbols))
+			done
+     			
+			if ((ipos==0)); then tp=5
+			elif ((ipos<10)); then tp=6
+			elif ((ipos==g_width-1)); then tp=6
+			else tp=4; fi
+
+			if ((time_x>=9 & ipos<g_width-10)) || ((ipos==g_width-1)); then
+					time_x=0
+					timeout="${timeout}$(spaces $tp)${g_time[-$((70+graph_scroll-ipos))]}"
+			fi
+			((++time_x))
+		done
+		tput cup $((ypos+6)) $((xpos+35)); echo -en "${bold}$(progress 100 "" "${green}")${reset}"
+		graph_array[10]="${bold}${white}$timeout${reset}"
+
+		if ((graph_scroll==graph_len-70)); then da1=${dark}
+		elif ((graph_scroll==0)); then da2=${dark}; fi
+		timeline="$first_date"
+		if [[ -n $second_date ]]; then timeline="$timeline to $second_date"; fi
+		graph_array[11]="$(spaces $((31-(${#timeline}/2))) )${da1}←${reset} ${bold}$timeline ${da2}→${reset}        "
+	fi
+
+	tput cup $((yposb-1)) $((xpos+1)); echo -en "${graph_array[10]}"
+	for ((i=0;i<=9;i++)); do
+		tput cup $((yposb-3-i)) $((xpos+1)); echo -en "${graph_array[$((9-i))]}"
+	done
+	tput cup $((ypos+1)) $((xpos+6)); echo -en "${reset}${graph_array[11]}"
+	
+	tput rc
+}
+
+graph_symbol() { #? Calculate current speed percentage of max speed and return symbol, usage: graph_symbol "current speed" "max speed"
+	if [[ -z $1 ]]; then echo -n "⠿"; return; fi
+	local x=$1
+	local y=$2
+	local val=$((x*100/y))
+	if ((val<=25)); then echo -n "⠤"
+	elif ((val<=50)); then echo -n "⠶"
+	elif ((val<=75)); then echo -n "⠾"
+	else echo -n "⠿"
+	fi
+}
+
+
 inputwait() { #? Timer and input loop
 	gen_menu
 	drawm
@@ -1416,6 +1614,13 @@ inputwait() { #? Timer and input loop
 			'[F') buffer "end" ;;
 				q) ctrl_c ;;
 		esac
+
+		if now graph; then
+			case "$keyp" in #* Graph control keys ------------------------------------
+				'[D') graph "left" ;;
+				'[C') graph "right" ;;
+			esac
+		fi
 
 		if now timer_menu; then #* Timer menu keys ------------------------------------
 			case "$keyp" in
@@ -1469,6 +1674,7 @@ inputwait() { #? Timer and input loop
 					else buffer "clear"
 					fi ;;
 				u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
+				g|G) if now graph; then graph off; else graph on; fi ;;
 			esac
 		fi
 
@@ -1519,8 +1725,10 @@ internet() {
 logrotate() { #? Rename logfile, compress and create new if size is over $logsize
 	if [[ -n $logname ]]; then
 		logfile="$logname"
+		unset logname
+		touch "$logfile"
 	else
-		logfile="log/spdtest.log"
+		if not logfile; then logfile="log/spdtest.log"; fi
 		if ((loglevel==0)); then return; fi
 		if [[ ! -d log ]]; then mkdir log; fi
 		touch $logfile
@@ -1799,6 +2007,13 @@ routetest() { #? Test routes with mtr
 running() { if kill -0 "$1" >/dev/null 2>&1; then return 0; else return 1; fi; } #? Returns true if process is running, usage: running "process pid"
 
 not_running() { if running "$1"; then return 1; else return 0; fi; } #? Returns true if process is NOT running, usage: not_running "process pid"
+
+spaces() { #? Echoes back spaces, usage: spaces "number of spaces"
+	local i
+	for((i=0;i<$1;i++)); do
+		echo -en " "
+	done
+}
 
 tcount() { #? Run timer count and write to shared memory, meant to be run in background
 	local rsec lsec="$1"
@@ -2079,10 +2294,11 @@ writelog() { #? Write to logfile, buffer and send to colorize()
 	declare input=${2:-$(</dev/stdin)}
 
 	if (($1<=loglevel | loglevel==103)); then file="$logfile"; else file="/dev/null"; fi
-	if ((loglevel==103)); then echo -en "$input\n" > "$file"; return; fi
+	if ((loglevel==103)); then echo -e "$input" > "$file"; return; fi
 
 	echo -e "$input" | tee -a "$file" | cut -c -"$width" | colorize
 	if not startup; then drawm "$drawm_ltitle" "$drawm_lcolor"; fi
+	if now graph; then graph redraw; fi
 
 	if not testonly && (($1<=8 & loglevel!=103)); then buffer add "$input"; fi
 }
@@ -2252,6 +2468,7 @@ if not paused && now startuptest && internet up; then
 fi
 
 drawm
+if [[ $graph_start == "shown" ]]; then graph on; fi
 startup=0
 
 #? Main loop function ------------------------------------------------------------------------------------------------------------------>
@@ -2276,6 +2493,7 @@ z_main_loop() {
 				if not precheck_ok; then return; fi
 			fi
 			testspeed "down"
+			if now graph; then graph add; fi
 		fi
 
 		if now broken; then return; fi
