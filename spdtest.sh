@@ -79,12 +79,14 @@ ookla_speedtest="speedtest"						#* Command or full path to official speedtest c
 spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
 
 #! Variables below are for internal function, don't change unless you know what you are doing
-if [[ -w /dev/shm ]]; then temp="/dev/shm"; else temp="/tmp" ; fi
+if [[ -w /dev/shm ]]; then temp="/dev/shm"
+elif [[ -w /tmp ]]; then temp="/tmp"
+elif [[ -w "$HOME/tmp" && -d "$HOME/tmp" ]] || mkdir -p "$HOME/tmp"; then temp="$HOME/tmp"
+else echo "ERROR: Could not access /dev/shm, /tmp or create a tmp folder in $HOME! Exiting!"; exit; fi
 secfile="${temp}/spdtest-sec.$$"
 speedfile="${temp}/spdtest-speed.$$"
 routefile="${temp}/spdtest-route.$$"
 tmpout="${temp}/spdtest-tmpout.$$"
-
 bufferfile="${temp}/spdtest-buffer.$$"
 declare -x colorize_input
 grc_err=0
@@ -141,9 +143,10 @@ graph_len=0
 graph_on=0
 graph_box+=("┌──────────────────────────────────────────────────────────────────────────────┐")
 graph_box+=("│                                                                              │")
-graph_box+=("│     ⡇                                                                        │")
-graph_box+=("│     ⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒  │")
+#graph_box+=("│     ⡇                                                                        │")
+#graph_box+=("│     ⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒  │")
 graph_box+=("└──────────────────────────────────────────────────────────────────────────────┘")
+graph_box+=("⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒")
 #? Menu format "Text".<underline position>."color"
 menu_array=(
 	"Quit.1.red"
@@ -181,7 +184,9 @@ declare -a testlista; declare -A testlistdesc
 declare -a rndbkp
 declare -a errorlist
 declare -A old_list
-cd "$(dirname "$(readlink -f "$0")")" || { echo "Failed to set working directory"; exit 1; }
+if [[ -e "$HOME/.config/spdtest.sh" ]] || mkdir -p "$HOME/.config/spdtest.sh"; then config_dir="$HOME/.config/spdtest.sh/"
+else echo "ERROR: Could not set config dir!"; exit 1; fi
+cd "$config_dir" || { echo "ERROR: Failed to set working directory!"; exit 1; }
 if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
 if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
 if (( max_buffer>0 & max_buffer<(height*2) )); then max_buffer=$((height*2)); fi
@@ -1481,20 +1486,20 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 	p_symbols=$((max_speed/10))
 	tput sc
 	tput cup $ypos $xpos; echo -en "${dark}${graph_box[0]}"
-	tput cup $((ypos+1)) $xpos; echo -en "${graph_box[1]}"
-	tput cup $((ypos+1)) $((xpos+2)); echo -en "${reset}${bold}Mbps${reset}"
-	for((i=0;i<10;i++)); do
-		tput cup $((ypos+i+2)) $xpos; echo -en "${dark}${graph_box[2]}"
+	#tput cup $((ypos+1)) $xpos; echo -en "${graph_box[1]}"
+	
+	for((i=0;i<13;i++)); do
+		tput cup $((ypos+i+1)) $xpos; echo -en "${dark}${graph_box[1]}"
 	done
-	yposb=$((ypos+i+4))
-	tput cup $((yposb-2)) $xpos; echo -en "${graph_box[3]}"
-	tput cup $((yposb-1)) $xpos; echo -en "${graph_box[1]}"
-	tput cup $((yposb)) $xpos; echo -en "${graph_box[4]}${reset}"
+	yposb=$((ypos+i+1))
+	#tput cup $((yposb-2)) $xpos; echo -en "${graph_box[3]}"
+	#tput cup $((yposb-1)) $xpos; echo -en "${graph_box[1]}"
+	tput cup $((yposb)) $xpos; echo -en "${graph_box[2]}${reset}"
 
 	
 	if [[ $1 == create ]]; then
-		tput cup $((ypos+5)) $((xpos+37)); echo -en "${bold}Loading..."
-		tput cup $((ypos+6)) $((xpos+35)); echo -en "$(progress 0 "" "${green}")${reset}"
+		tput cup $((ypos+5)) $((xpos+35)); echo -en "${bold}Loading..."
+		tput cup $((ypos+6)) $((xpos+33)); echo -en "$(progress 0 "" "${green}")${reset}"
 		for((i=0;i<10;i++)); do
 			max_text=$(echo "scale=1; $max_speed-($i*($max_speed/10))" |bc ); max_text=${max_text%.*}
 			if (( max_text<(slowspeed*op) )); then color="${bright_red}"
@@ -1515,7 +1520,7 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 			if [[ -z $second_date && ${g_date[-$((70+graph_scroll-ipos))]} != "$first_date" ]]; then second_date=${g_date[-$((70+graph_scroll-ipos))]}
 			elif [[ -n $second_date && ${g_date[-$((70+graph_scroll-ipos))]} != "$second_date" ]]; then second_date=${g_date[-$((70+graph_scroll-ipos))]}; fi
 
-			if ((${ipos:(-1)}==0)); then tput cup $((ypos+6)) $((xpos+35)); echo -en "${bold}$(progress $((ipos*100/g_width)) "" "${green}")${reset}"; fi
+			if ((${ipos:(-1)}==0)); then tput cup $((ypos+6)) $((xpos+33)); echo -en "${bold}$(progress $((ipos*100/g_width)) "" "${green}")${reset}"; fi
 			sval_op=$sval
 			for((ih=9;ih>=0;ih--)); do
 				if ((sval_op<=0)); then graph_array[$ih]="${graph_array[$ih]} "
@@ -1538,7 +1543,7 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 			fi
 			((++time_x))
 		done
-		tput cup $((ypos+6)) $((xpos+35)); echo -en "${bold}$(progress 100 "" "${green}")${reset}"
+		tput cup $((ypos+6)) $((xpos+33)); echo -en "${bold}$(progress 100 "" "${green}")${reset}"
 		graph_array[10]="${bold}${white}$timeout${reset}"
 
 		if ((graph_scroll==graph_len-70)); then da1=${dark}
@@ -1548,6 +1553,8 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 		graph_array[11]="$(spaces $((31-(${#timeline}/2))) )${da1}←${reset} ${bold}$timeline ${da2}→${reset}        "
 	fi
 
+	tput cup $((ypos+1)) $((xpos+2)); echo -en "${reset}${bold}Mbps${reset}"
+	tput cup $((yposb-2)) $((xpos+6)); echo -en "${dark}${graph_box[3]}${reset}"
 	tput cup $((yposb-1)) $((xpos+1)); echo -en "${graph_array[10]}"
 	for ((i=0;i<=9;i++)); do
 		tput cup $((yposb-3-i)) $((xpos+1)); echo -en "${graph_array[$((9-i))]}"
