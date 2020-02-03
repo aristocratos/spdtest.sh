@@ -1452,11 +1452,11 @@ graph_collect() { #? Collect data for graph
 			fi
 			((++x))
 		fi
-	fi
-	graph_len=${#g_unit[@]}
-	graph_max_speed=$max_speed
+	fi	
 	if [[ $1 == "add" ]] && ((found=1)); then break; fi
 	done <<< "$($inputcmd)"
+	graph_len=${#g_unit[@]}
+	graph_max_speed=$max_speed
 }
 
 graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw ["create"]
@@ -1617,14 +1617,14 @@ inputwait() { #? Timer and input loop
 
 		if now timer_menu; then #* Timer menu keys ------------------------------------
 			case "$keyp" in
-				H) secs=$(( secs + 3600 )); updatesec=1;;
-				h) if [[ $secs -gt 3600 ]]; then secs=$(( secs - 3600 )) ; updatesec=1; fi ;;
-				M) secs=$(( secs + 60 )); updatesec=1 ;;
-				m) if [[ $secs -gt 60 ]]; then secs=$(( secs - 60 )); updatesec=1 ; fi ;;
-				S) secs=$(( secs + 1 )); updatesec=1 ;;
-				s) if [[ $secs -gt 1 ]]; then secs=$(( secs - 1 )); updatesec=1 ; fi ;;
+				H) secs=$((secs+3600)); updatesec=1;;
+				h) if ((secs>3600)); then secs=$((secs-3600 )) ; updatesec=1; fi ;;
+				M) secs=$((secs+60)); updatesec=1 ;;
+				m) if ((secs>60)); then secs=$((secs-60)); updatesec=1 ; fi ;;
+				S) secs=$((secs+1)); updatesec=1 ;;
+				s) if ((secs>1)); then secs=$((secs-1)); updatesec=1 ; fi ;;
 				a|A)
-					if [[ -n $idletimer ]] && [[ $idle == "true" ]]; then idlesaved=$secs
+					if [[ -n $idletimer ]] && now idle; then idlesaved=$secs
 					else waitsaved=$secs; fi
 					updatesec=1
 					drawm "Timer saved!" "$green" 2; drawm
@@ -2040,8 +2040,8 @@ test_type_checker() { #? Check current type of test being run by speedtest
 		speedstring=$(tail -n1 < $speedfile)
 		stype=$(echo "$speedstring" | jq -r '.type' 2> /dev/null || true)
 		if now broken; then stype="broken"; return; fi
-		if [[ $stype == "log" ]]; then slowerror=1; return; fi
-		if not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
+		if [[ $stype == "log" ]]; then slowerror=1; return
+		elif not_running "$speedpid" && [[ $stype != "result" ]]; then slowerror=1; stype="ended"; fi
 }
 
 testspeed() { #? Using official Ookla speedtest client
@@ -2158,7 +2158,8 @@ testspeed() { #? Using official Ookla speedtest client
 		if now broken; then break; fi
 		if [[ $mode == "full" ]]; then wait $speedpid || true; fi
 		if now slowerror; then
-			if [[ -z $down_speed ]]; then warnings="ERROR: Could not test server!"
+			if [[ $stype == "log" ]]; then warnings="ERROR: $(echo "$speedstring" | jq -r '.message')"
+			elif [[ -z $down_speed ]]; then warnings="ERROR: Could not test server!"
 			else warnings="ERROR: Test ended early!"; fi
 		fi
 
@@ -2187,7 +2188,7 @@ testspeed() { #? Using official Ookla speedtest client
 				fi
 			fi
 			
-			if [[ -n $packetloss && ! $packetloss =~ null|0 ]]; then warnings="WARNING: ${packetloss%%.*}% packet loss!"; fi
+			if [[ -n $packetloss && $packetloss != "null" && $packetloss != "0" ]]; then warnings="WARNING: ${packetloss::4}% packet loss!"; fi
 			printf "\r"; tput el
 			printf "%-12s%-12s%-8s%-16s%-10s%s%s" "   $down_speed  " "  $up_speed" " $server_ping " "$(progress "$up_progress" "$downst")    " " $elapsedt  " "${testlistdesc["$tl"]}" "  $warnings" | writelog 1
 			((++tests))
@@ -2301,9 +2302,9 @@ writelog() { #? Write to logfile, buffer and send to colorize()
 	declare input=${2:-$(</dev/stdin)}
 
 	if (($1<=loglevel | loglevel==103)); then file="$logfile"; else file="/dev/null"; fi
-	if ((loglevel==103)); then echo -e "$input" > "$file"; return; fi
+	if ((loglevel==103)); then echo -en "$input\n" > "$file"; return; fi
 
-	echo -e "$input" | tee -a "$file" | cut -c -"$width" | colorize
+	echo -en "$input\n" | tee -a "$file" | cut -c -"$width" | colorize
 	if not startup; then drawm "$drawm_ltitle" "$drawm_lcolor"; fi
 	if now graph; then graph redraw; fi
 
