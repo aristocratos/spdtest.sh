@@ -2305,7 +2305,7 @@ toggle() { #? Toggle a variables true or false state
 traperr() {
 	local match len trap_muted err="${BASH_LINENO[0]}"
 
-	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> "errors"; fi
+	if [[ -z ${trace_array[0]} ]]; then echo -e "INFO: Starting error trace $(date +\(%x\))" >> "${config_dir}errors"; fi
 	len=$((${#trace_array[@]}))
 	if ((len-->=1)); then
 		while ((len>=${#trace_array[@]}-2)); do		
@@ -2316,7 +2316,7 @@ traperr() {
 		fi
 	fi
 	trace_array+=("$err")
-	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "errors"
+	echo "$(date +%X)  ERROR: On line $err $trap_muted" >> "${config_dir}errors"
 	
 }
 
