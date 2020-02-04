@@ -9,13 +9,14 @@
 # shellcheck disable=SC2004
 
 #?> Start variables ------------------------------------------------------------------------------------------------------------------>
-aa_variables() { echo -n; }
+#? These are the default values and gets overridden by the config file at "$HOME/.config/spdtest/spdtest.cfg"
+aaa_config() { : ; } #! Do not remove this line!
 net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
 unit="megabit"			#* Default speed value to use, valid values are "megabit" and "megabyte"
 slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
 numservers="30"			#* How many of the closest servers to get from speedtest.net, used as random pool of servers to test against
 slowretry="1"			#* When speed is below slowspeed, how many retries of random servers before running full tests
-max_err_retry="10"		#* Max servers to test if an error is encountered in slowcheck
+max_err_retry="3"		#* Max servers to test if an error is encountered in slowcheck
 numslowservers="8"		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
 precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
 precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
@@ -36,12 +37,12 @@ paused="false"			#* If "true", the timer is paused at startup, ignored if displa
 startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
 main_menu_start="shown" #* The status of the main menu at start, possible values: "shown", "hidden"
 graph_start="shown"		#* The status of the speed graph at start, possible values: "shown", "hidden"
-loglevel=2				#* 0 : No logging
+loglevel="2"				#* 0 : No logging
 						#* 1 : Log only when slow speed has been detected
 						#* 2 : Also log slow speed check
 						#* 3 : Also log server updates
 						#* 4 : Log all including forced tests
-logdir="$HOME/spdtest.sh-logs" #* Logfile save directory
+logdir="$HOME/spdtest-logs" #* Logfile save directory
 quiet_start="true"		#* If "true", don't print serverlist and routelist at startup
 maxlogsize="1024"		#* Max logsize (in kilobytes) before log is split
 logcompress="gzip"		#* Command for compressing logs, only log splits beyond the last split is compressed, disabled if not set
@@ -52,22 +53,54 @@ mtr="true"				#* Set "false" to disable route testing with mtr, automatically se
 mtr_internal="true"		#* Use hosts from full test with speeds below $slowspeed in mtr test
 mtr_internal_ok="false"	#* Use hosts from full test with speeds above $slowspeed in mtr test
 # mtr_internal_max=""	#* Set max hosts to add from full test
-mtr_external="false"	#* Use hosts from route.cfg.sh, see route.cfg.sh.sample for formatting
+mtr_external="false"	#* Use hosts from route.cfg, see route.cfg.sample for formatting
 mtrpings="25"			#* Number of pings sent with mtr
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
-testnum=1				#* Number of times to loop full tests in testonly mode
+testnum="1"				#* Number of times to loop full tests in testonly mode
 
-trace_errors="true" #! Remove!
+ookla_speedtest="speedtest"	#* Command or full path to official speedtest client 
 
-
-ookla_speedtest="speedtest"						#* Command or full path to official speedtest client 
-spdtest_grcconf="./grc/grc.conf"				#* Path to grc color config
+trace_errors="true"		#* In event of error print line number of offending command to $HOME/.config/spdtest/errors
+aaz_config() { : ; } #! Do not remove this line!
 
 #! Variables below are for internal function, don't change unless you know what you are doing
+this_file="$(realpath "$0")"
+if [[ -e "$HOME/.config/spdtest" ]] || mkdir -p "$HOME/.config/spdtest"; then config_dir="$HOME/.config/spdtest/"
+else echo "ERROR: Could not set config dir!"; exit 1; fi
+#cd "$config_dir" || { echo "ERROR: Failed to set working directory!"; exit 1; }
+
+create_config() { #? Creates a new config file with default values from above
+	local c_line c_read IFS=''
+	if [[ -e $config_file ]]; then true > "$config_file"; fi
+	# shellcheck disable=SC2164
+	while read -r c_line; do
+		if [[ $c_line =~ aaz_config() ]]; then break
+		elif [[ $c_read == "1" ]]; then echo -e "$c_line" >> "$config_file"
+		elif [[ $c_line =~ aaa_config() ]]; then c_read=1; fi
+	done < "$this_file"
+}
+
+save_config() { #? Save variables to config file, usage: save_config "var1" ["var2"] ["var3"]...
+	if [[ -z $1 ]]; then return; fi
+	local var
+	for var in "$@"; do
+	if [[ $(<"$config_file") =~ $var ]]; then
+		sed -Ei "s;\#*\s*($var=\"?)[A-Za-z0-9\_\+\/\:\.\#\'\$\-]*(\"?\s?\t*.*);\1${!var}\2;g" "$config_file"
+	else
+		echo "${var}=\"${!var}\"" >> "$config_file"
+	fi
+	done
+}
+
+# shellcheck source=/dev/null
+config_file="${config_dir}spdtest.cfg"
+if [[ -e $config_file ]]; then source "$config_file"
+else create_config; fi
+
 if [[ -w /dev/shm ]]; then temp="/dev/shm"
 elif [[ -w /tmp ]]; then temp="/tmp"
-elif [[ -w "$HOME/tmp" && -d "$HOME/tmp" ]] || mkdir -p "$HOME/tmp"; then temp="$HOME/tmp"
-else echo "ERROR: Could not access /dev/shm, /tmp or create a tmp folder in $HOME! Exiting!"; exit; fi
+elif [[ -w "$HOME/tmp" && -d "$HOME/tmp" ]] || mkdir "${config_dir}tmp"; then temp="${config_dir}tmp"
+else echo "ERROR: Could not access /dev/shm, /tmp or create a tmp folder in $HOME/.config/spdtest ! Exiting!"; exit; fi
 secfile="${temp}/spdtest-sec.$$"
 speedfile="${temp}/spdtest-speed.$$"
 routefile="${temp}/spdtest-route.$$"
@@ -169,10 +202,8 @@ declare -a testlista; declare -A testlistdesc
 declare -a rndbkp
 declare -a errorlist
 declare -A old_list
-if [[ -e "$HOME/.config/spdtest.sh" ]] || mkdir -p "$HOME/.config/spdtest.sh"; then config_dir="$HOME/.config/spdtest.sh/"
-else echo "ERROR: Could not set config dir!"; exit 1; fi
-cd "$config_dir" || { echo "ERROR: Failed to set working directory!"; exit 1; }
-if [[ -e server.cfg.sh ]]; then servercfg="server.cfg.sh"; else servercfg="/dev/null"; fi
+
+if [[ -e "${config_dir}server.cfg" ]]; then servercfg="${config_dir}server.cfg"; else servercfg="/dev/null"; fi
 if [[ -e /dev/urandom ]]; then rnd_src="--random-source=/dev/urandom"; else rnd_src=""; fi
 if (( max_buffer>0 & max_buffer<(height*2) )); then max_buffer=$((height*2)); fi
 if [[ $main_menu_start == "shown" ]]; then menu_status=1; fi
@@ -355,9 +386,10 @@ argumenterror() { #? Handles argument errors
 		server-config) echo "Can't find server config, use with flag -gs to create a new file" ;;
 		missing) echo -e "$2 missing argument" ;;
 		wrong) echo -e "$3 not a valid modifier for $2" ;;
+		format) echo -e "$2 not a valid timer format, should be HH:MM:SS"
 	esac
 	echo -e "$0 -h, --help \tShows help information"
-	exit 0
+	exit 1
 }
 
 # re='^[0-9]+$'
@@ -398,7 +430,7 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 		-gs|--gen-server-cfg)
 			updateservers=3
 			genservers="true"
-			servercfg=server.cfg.sh
+			servercfg=server.cfg
 			shift
 		;;
 		-sc|--server-config)
@@ -406,8 +438,8 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			else argumenterror "server-config"; fi
 		;;
 		-wt|--wait-time)
-			waittime="$2"
-			shift
+			if [[ $1 =~ ^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$ ]]; then waittime="$2"; shift
+			else argumenterror "format" "$2"; fi
 		;;
 		-st|--slow-time)
 			slowwait="$2"
@@ -415,7 +447,8 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 		;;
 		-x|--x-reset)
 			idle="true"
-			if [[ -n $2 && ${2::1} != "-" ]]; then idletimer="$2"; shift; fi
+			if [[ -n $2 && $2 =~ ^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$ ]]; then idletimer="$2"; shift
+			else argumenterror "format" "$2"; fi
 		;;
 		-d|--display-pause)
 			displaypause="true"
@@ -447,18 +480,19 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			echo -e "\t                            If HH:MM:SS is included, the script uses this timer until first test, then uses"
 			echo -e "\t                            standard wait time, any activity resets to idle timer [default: unset]"
 			echo -e "\t-d, --display-pause         Automatically pauses timer when display is on, unpauses when off"
-			echo -e "\t-gs, --gen-server-cfg num   Writes <x> number of the closest servers to \"server.cfg.sh\" and quits"
-			echo -e "\t                            Servers aren't updated automatically at start if \"server.cfg.sh\" exists"
-			echo -e "\t-sc, --server-config file   Reads server config from <file> [default: server.cfg.sh]"
+			echo -e "\t-gs, --gen-server-cfg num   Writes <x> number of the closest servers to \"server.cfg\" and quits"
+			echo -e "\t                            Servers aren't updated automatically at start if \"server.cfg\" exists"
+			echo -e "\t-sc, --server-config file   Reads server config from <file> [default: server.cfg]"
 			echo -e "\t                            If used in combination with -gs a new file is created"
 			echo -e "\t-h, --help                  Shows help information"
 			echo -e "CONFIG:"
-			echo -e "\t                            Note: All config files should be stored in same folder as main script"
-			echo -e "\tspdtest.sh                  Options can be permanently set in the Variables section of main script"
-			echo -e "\t[server.cfg.sh]             Stores server id's to use with speedtest, delete to refresh servers on start"
-			echo -e "\t[route.cfg.sh]              Additional hosts to test with mtr"
+			echo -e "\t                            Note: All config files are stored in: $HOME/.config/spdtest"
+			echo -e "\tspdtest.cfg                 Automatically created with default values if removed"
+			echo -e "\t[server.cfg]                Stores server id's to use with speedtest, delete to refresh servers on start"
+			echo -e "\t[route.cfg]                 Additional hosts to test with mtr, see route.cfg.sample for formatting"
 			echo -e "LOG:"
-			echo -e "\t                            Logs are named spdtest<date>.log and saved in ./log folder of main script"
+			echo -e "\t                            Logfile location can be changed in config file"
+			echo -e "\t                            Currently: $logdir"
 			exit 0
 		;;
 		*)
@@ -1024,10 +1058,10 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
 	numslowservers=${numslowservers:-$((num-1))}
 	writelog 3 "\n "
-	if [[ -e route.cfg.sh && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
+	if [[ -e route.cfg && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
 		# shellcheck disable=SC1091
-		source route.cfg.sh
-		writelog 3 "Hosts in route.cfg.sh:"
+		source route.cfg
+		writelog 3 "Hosts in route.cfg:"
 		for i in "${routelista[@]}"; do
 			writelog 3 "(${routelistdesc["$i"]}): $i"
 		done
@@ -1434,6 +1468,7 @@ graph_collect() { #? Collect data for graph
 	elif [[ $1 == "init" ]] && ((loglevel==0)); then inputcmd="cat $bufferfile"
 	elif [[ $1 == "init" ]]; then inputcmd="cat $logfile"
 	else return; fi
+	graph_scroll=0
 	while read -r line; do
 	if [[ ${line::4} == *[0-9]* && $line =~ Mbps|MB/s ]]; then
 		if [[ ! $line =~ ERROR ]]; then
@@ -1725,7 +1760,7 @@ logsplit() { #? Rename logfile, compress and create new if size is over $logsize
 		touch "$logfile" || writelog 1 "ERROR: Could not write to custom logfile! Exiting!"; sleep 3; ctrl_c
 	else
 		if not logfile; then 
-			if not logdir; then logdir="$HOME/spdtest.sh-logs/"
+			if not logdir; then logdir="$HOME/spdtest-logs/"
 			elif [[ ${logdir:(-1)} != "/" ]]; then logdir="${logdir}/"; fi
 			if [[ ! -e $logdir ]]; then mkdir -p "$logdir" || writelog 1 "ERROR: Could not create log directory! Exiting!"; sleep 3; ctrl_c; fi
 			if [[ ! -w $logdir ]]; then writelog 1 "ERROR: Could not write to log directory! Exiting!"; sleep 3; ctrl_c; fi
@@ -1744,7 +1779,7 @@ logsplit() { #? Rename logfile, compress and create new if size is over $logsize
 			tail -n +$(( (size/2)+1 )) "$logfile" > "${logdir}tmp"
 			rm -f "$logfile"
 			mv "${logdir}tmp" "$logfile"
-
+			if now graph; then graph off; graph on; fi
 			if [[ -n $logcompress && -e "${logdir}spdtest.log.2" ]]; then $logcompress "${logdir}spdtest.log.2"; fi
 		fi
 	fi
@@ -2407,7 +2442,7 @@ if not mtr; then mtr_internal="false"; mtr_internal_ok="false"; fi
 deliver "$tmpout"
 
 if now genservers; then #? Gets servers, write to file and quit if -gs or --gen-server-cfg was passed
-	echo -e "\nCreating server.cfg.sh"
+	echo -e "\nCreating server.cfg"
 	stat=0
 	loglevel=0
 	getservers
