@@ -840,7 +840,7 @@ ctrl_c() { #? Catch ctrl-c and general exit function, abort if currently testing
 	else
 		assasinate "$secpid" "$routepid" "$speedpid"
 		bury "$secfile" "$speedfile" "$routefile" "$tmpout"
-		if now buffer_save && [[ -e "$bufferfile" ]]; then cp -f "$bufferfile" .buffer >/dev/null 2>&1; fi
+		if now buffer_save && [[ -e "$bufferfile" ]]; then cp -f "$bufferfile" "${config_dir}.buffer" >/dev/null 2>&1; fi
 		bury "$bufferfile"
 		if [[ -n $precheck_ssh ]] && ssh -S "$ssh_socket" -O check "$precheck_ssh" >/dev/null 2>&1; then ssh -S "$ssh_socket" -O exit "$precheck_ssh" >/dev/null 2>&1; fi
 		tput clear; tput cvvis; stty echo; tput rmcup
@@ -1058,9 +1058,9 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
 	numslowservers=${numslowservers:-$((num-1))}
 	writelog 3 "\n "
-	if [[ -e route.cfg && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
+	if [[ -e "${config_dir}route.cfg" && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
 		# shellcheck disable=SC1091
-		source route.cfg
+		source "${config_dir}route.cfg"
 		writelog 3 "Hosts in route.cfg:"
 		for i in "${routelista[@]}"; do
 			writelog 3 "(${routelistdesc["$i"]}): $i"
@@ -2493,7 +2493,7 @@ if now trace_errors || now debug; then
 	trap traperr ERR
 fi
 
-if now buffer_save && [[ -s .buffer ]]; then cp -f .buffer "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
+if now buffer_save && [[ -s "${config_dir}.buffer" ]]; then cp -f "${config_dir}.buffer" "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
 if now debug; then x_debug1; fi #! Remove
 
 #writelog 1 "\nINFO: Script started! ($(date +%Y-%m-%d\ %T))\n"
