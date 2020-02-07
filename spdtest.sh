@@ -428,27 +428,25 @@ while [[ $# -gt 0 ]]; do #? @note Parse arguments
 			else argumenterror "missing" "$1"; fi
 		;;
 		-gs|--gen-server-cfg)
-			updateservers=3
 			genservers="true"
 			servercfg=server.cfg
-			shift
 		;;
 		-sc|--server-config)
 			if [[ -e $2 ]] || [[ $updateservers == 3 ]]; then servercfg="$2"; shift
 			else argumenterror "server-config"; fi
 		;;
 		-wt|--wait-time)
-			if [[ $1 =~ ^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$ ]]; then waittime="$2"; shift
+			if [[ $2 =~ ^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$ ]]; then waittime="$2"; shift
 			else argumenterror "format" "$2"; fi
 		;;
 		-st|--slow-time)
-			slowwait="$2"
-			shift
+			if [[ $2 =~ ^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$ ]]; then slowwait="$2"; shift
+			else argumenterror "format" "$2"; fi
 		;;
 		-x|--x-reset)
 			idle="true"
 			if [[ -n $2 && $2 =~ ^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$ ]]; then idletimer="$2"; shift
-			else argumenterror "format" "$2"; fi
+			elif [[ -n $2 && ${2::1} != "-" ]]; then argumenterror "format" "$2"; fi
 		;;
 		-d|--display-pause)
 			displaypause="true"
@@ -824,7 +822,7 @@ contains() { #? Function for checking if a value is contained in an array, argum
 	local i n value
 	n=$#
 	value=${!n}
-	for ((i=1;i < $#;i++)) {
+	for ((i=1;i<$#;i++)) {
 		if [[ "${!i}" == "${value}" ]]; then
 			return 0
 		fi
@@ -1005,20 +1003,21 @@ getproc() { #? Get /proc/dev/net from local filesystem or from ssh if enabled
 }
 
 getservers() { #? Gets servers from speedtest-cli and optionally saves to file
+	if [[ -n ${testlista[0]} ]]; then bkp_testlista=("${testlista[@]}"); fi
 	unset 'testlista[@]'
 	unset 'testlistdesc[@]'
 	unset 'routelista[@]'
 	unset 'routelistadesc[@]'
-	local num IFS=$'\n'
-	num=1
-
+	local update IFS=$'\n'
+	local num=1
+	if [[ $1 == "update" ]]; then update=1; fi
 	if now quiet_start; then
 		old loglevel save
 		if ((loglevel>=3)); then loglevel=103
 		elif ((loglevel<3)); then loglevel=1000; fi
 	fi
-	if [[ -n ${testlista[0]} ]]; then bkp_testlista=("${testlista[@]}"); fi
-	if [[ -e $servercfg && $servercfg != "/dev/null" ]] && not updateservers; then
+	
+	if [[ -e $servercfg && $servercfg != "/dev/null" ]] && not update genservers; then
 		source "$servercfg"
 		writelog 3 "\nUsing servers from $servercfg"
 		for tl in "${testlista[@]}"; do
@@ -1031,7 +1030,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 		waiting $! "Fetching servers"; tput el
 		speedlist=$(<"$tmpout")
 		true > "$tmpout"
-		writelog 3 "Using servers:         "
+		if not update; then writelog 3 "Using servers:         "; fi
 		for line in $speedlist; do
 			servnum=${line:0:5}
 			servnum=${servnum%)}
@@ -1042,7 +1041,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 			servdesc=${servdesc# }
 			testlistdesc["$servnum"]="$servdesc"
 			echo -e "testlista+=(\"$servnum\");\t\ttestlistdesc[\"$servnum\"]=\"$servdesc\"" >> "$servercfg"
-			writelog 3 "$num. $servdesc"
+			if not update; then writelog 3 "$num. $servdesc"; fi
 			((++num))
 		done
 	fi
@@ -1057,8 +1056,8 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 	fi
 	if [[ $numslowservers -ge $num ]]; then numslowservers=$((num-1)); fi
 	numslowservers=${numslowservers:-$((num-1))}
-	writelog 3 "\n "
-	if [[ -e "${config_dir}route.cfg" && $startup == 1 && $genservers != "true" && $mtr == "true" && $mtr_external == "true" ]]; then
+	if not update; then writelog 3 "\n "; fi
+	if [[ -e "${config_dir}route.cfg" ]] && now startup mtr mtr_external && not genservers; then
 		# shellcheck disable=SC1091
 		source "${config_dir}route.cfg"
 		writelog 3 "Hosts in route.cfg:"
@@ -1068,7 +1067,7 @@ getservers() { #? Gets servers from speedtest-cli and optionally saves to file
 		writelog 3 "\n"
 	fi
 
-	if now quiet_start && old loglevel notsame; then loglevel=$(old loglevel get); fi
+	if now quiet_start && old loglevel notsame; then loglevel=$(old loglevel get); quiet_start="false"; fi
 }
 
 getservers_cli() { #? Modified and heavly compacted version of speedtest-cli, unmodified source at https://github.com/sivel/speedtest-cli
@@ -1463,17 +1462,24 @@ graph() { #? Control function for all graph functions, usage: graph [on/off/redr
 
 graph_collect() { #? Collect data for graph 
 	if [[ -z $1 ]]; then return; fi
-	local line max_speed inputcmd found x=$((graph_len+1))
+	local line max_speed inputcmd found attrem attremp x=$((graph_len+1))
 	if [[ $1 == "add" ]]; then max_speed=$graph_max_speed; inputcmd="tac $bufferfile"
 	elif [[ $1 == "init" ]] && ((loglevel==0)); then inputcmd="cat $bufferfile"
 	elif [[ $1 == "init" ]]; then inputcmd="cat $logfile"
 	else return; fi
 	graph_scroll=0
 	while read -r line; do
-	if [[ ${line::4} == *[0-9]* && $line =~ Mbps|MB/s ]]; then
+	if [[ ${line::5} == *[0-9]* && $line =~ Mbps|MB/s ]]; then
 		if [[ ! $line =~ ERROR ]]; then
 			found=1
-			if [[ $line =~ Attempt ]] && ((x>1)); then line=${line% <--*}; if [[ $1 == "init" ]]; then ((x--)); fi; fi
+			if [[ $line =~ Attempt ]] && ((x>1)); then
+				attrem=${line:(-1)}
+				line=${line% <--*}
+				if [[ $1 == "init" ]] && ((attrem>attremp)); then ((x--)); fi
+				attremp=$attrem
+			else
+				attrem=0; attremp=0
+			fi
 			g_speed[$x]=${line%% M*} 
 			g_unit[$x]=${line%%  [*}; g_unit[$x]=${g_unit[$x]#${g_speed[$x]} }
 			if [[ ${g_unit[$x]} != "Mbps" ]]; then g_speed[$x]=$((g_speed[$x]*8)); fi
@@ -1701,7 +1707,7 @@ inputwait() { #? Timer and input loop
 				c|C) if not buffer ; then tput clear; tput cup 3 0; drawm
 					else buffer "clear"
 					fi ;;
-				u|U) drawm "Getting servers..." "$yellow"; updateservers=1; getservers; drawm ;;
+				u|U) drawm "Getting servers..." "$yellow"; getservers update; drawm ;;
 				g|G) if now graph; then graph off; else graph on; fi ;;
 			esac
 		fi
@@ -1971,7 +1977,7 @@ random() { #? Random/shuffle (number[s]) or (number[s] in array) or (value[s] in
 	elif [[ $1 == array_value && -n $2 ]]; then  #? Random value[s] from array, usage: random array_value "arrayname" ["amount"] ; use "*" as amount for all in random order
 		local i rnd; rnd=($(random array_int "$2" "$3"))
 		for i in "${rnd[@]}"; do
-		local arr_value="${2}[$((i-1))]"
+		local arr_value="${2}[$i]"
 		echo "${!arr_value}"
 		done
 	fi
@@ -2110,7 +2116,7 @@ testspeed() { #? Using official Ookla speedtest client
 	while ((tests<=max_tests)); do #? Test loop start ------------------------------------------------------------------------------------>
 		down_speed=""; down_progress=""; elapsed=""; elapsed2=""; up_speed=""; up_progress=""
 		if [[ $mode == "full" ]]; then
-			writelog 1 " "
+			if ((tests==0)); then writelog 1 " "; fi
 			if not slowgoing forcetest testonly; then
 				writelog 1 "<---------------------------------------Slow speed detected!---------------------------------------->"
 				slowgoing=1
@@ -2263,6 +2269,11 @@ testspeed() { #? Using official Ookla speedtest client
 			timestamp="$(date +%H:%M\ \(%y-%m-%d))"
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress "100" "FAIL!")" " ${testlistdesc["$tl"]} $timestamp  $warnings" | writelog 2
 			if internet down; then writelog 2 "ERROR: Can't reach the internet, aborting tests!\n"; break; fi
+			if [[ $warnings =~ "No servers defined" ]]; then
+				writelog 9 "INFO: Updating server list!"
+				tput cuu1; tput cuf 28; getservers update
+				tput el; writelog 2 "INFO: Updating serverlist! Done."
+			fi
 			if ((err_retry<max_err_retry)); then
 				tl2=$tl
 				while contains "${errorlist[@]}" "$tl2"; do
@@ -2560,7 +2571,7 @@ z_main_loop() {
 			if [[ -n $slowwait ]] && old waittime notsame; then waittime=$(old waittime get); fi
 			if not slowerror; then
 				slowgoing=0
-				writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>"
+				writelog 1 "\n<------------------------------------------Speeds normal!------------------------------------------>\n"
 			fi
 		fi
 	fi
