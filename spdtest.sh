@@ -2244,7 +2244,7 @@ testspeed() { #? Using official Ookla speedtest client
 		elif [[ $mode == "down" ]] && not slowerror; then
 			if not slowgoing; then rndbkp[$xl]="$tl"; ((++xl)); fi
 			if ((down_speed<=slowspeed)); then downst="FAIL!"; else downst="OK!"; fi
-			if (( tdate!=$(date +%d) )) || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
+			if [[ $tdate != "$(date +%d)" ]] || ((times_tested==10)); then tdate="$(date +%d)"; times_tested=0; timestamp="$(date +%H:%M\ \(%y-%m-%d))"; else timestamp="$(date +%H:%M)"; fi
 			printf "\r"; tput el; printf "%5s%-4s%14s\t%s" "$down_speed " "$unit" "$(progress $down_progress "$downst")" " ${testlistdesc["$tl"]} <Ping: $server_ping> $timestamp $numstat"| writelog 2
 			lastspeed=$down_speed
 			((++times_tested))
