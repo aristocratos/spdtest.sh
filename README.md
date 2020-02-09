@@ -59,7 +59,7 @@ Modified version of grcat. Python code included in the script.
 - [ ] TODO Change slowtest to multiple servers and compare results
 - [ ] TODO fix wrong keypress in inputwait, esc codes etc
 - [ ] TODO fix up README.md
-- [ ] TODO extern config and save to config?
+- [x] TODO extern config and save to config?
 - [x] TODO ssh controlmaster, server, client for precheck_speed
 - [ ] TODO buffer logview
 - [ ] TODO route test menu, choose host to test
