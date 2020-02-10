@@ -109,6 +109,43 @@ routelistdesc["amazon.com"]="Amazon"
 routelistport["amazon.com"]="auto"
 ```
 
+#### Command line options: (to be updated)
+```
+USAGE: ./spdtest.sh [OPTIONS]
+
+OPTIONS:
+        -t, --test [num]            Runs full test 1 or <x> number of times and quits
+        -u, --unit megabit/megabyte Which unit to show speed in, [default: megabit]
+        -s, --slow-speed speed      Defines what speed in defined unit that will trigger more tests
+        -n, --num-servers num       How many of the closest servers to get from speedtest.net
+        -i, --interface name        Network interface being used [default: auto]
+        -l, --loglevel 0-3          0 No logging
+                                    1 Log only when slow speed has been detected
+                                    2 Also log slow speed check and server update
+                                    3 Log all including forced tests
+        -lf, --log-file file        Full path to custom logfile, no log rotation is done on custom logfiles
+        -p, --paused                Sets timer to paused state at startup
+        -wt, --wait-time HH:MM:SS   Time between tests when NO slowdown is detected [default: 00:10:00]
+        -st, --slow-time HH:MM:SS   Time between tests when slowdown has been detected, uses wait timer if unset
+        -x, --x-reset [HH:MM:SS]    Reset timer if keyboard or mouse activity is detected in X Server
+                                    If HH:MM:SS is included, the script uses this timer until first test, then uses
+                                    standard wait time, any activity resets to idle timer [default: unset]
+        -d, --display-pause         Automatically pauses timer when display is on, unpauses when off
+        -gs, --gen-server-cfg num   Writes <x> number of the closest servers to "server.cfg" and quits
+                                    Servers aren't updated automatically at start if "server.cfg" exists
+        -sc, --server-config file   Reads server config from <file> [default: server.cfg]
+                                    If used in combination with -gs a new file is created
+        -h, --help                  Shows help information
+CONFIG:
+                                    Note: All config files are stored in: $HOME/.config/spdtest
+        spdtest.cfg                 Automatically created with default values if removed
+        [server.cfg]                Stores server id's to use with speedtest, delete to refresh servers on start
+        [route.cfg]                 Additional hosts to test with mtr, see route.cfg.sample for formatting
+LOG:
+                                    Logfile location can be changed in config file
+                                    Currently: $HOME/spdtest-logs
+```
+
 ## Dependencies
 
 **bash** (v4.4 or later) Script functionality might brake with earlier versions.  
