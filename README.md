@@ -26,6 +26,89 @@ Main UI with graph on.
 * Unit used can be switched between Mbits and MB/s.
 * Function for splitting log files at a defined size, old log files can also be automatically compressed.
 
+## Configurability
+
+Config files stored in "$HOME/.config/spdtest" folder
+
+#### spdtest.cfg: (auto generated if not found)
+```bash
+net_device="auto"		#* Network interface to get current speed from, set to "auto" to get default interface from "ip route" command
+unit="megabit"			#* Default speed value to use, valid values are "megabit" and "megabyte"
+slowspeed="30"			#* Download speed in unit defined above that triggers more tests, recommended set to 10%-40% of your max speed
+numservers="30"			#* How many of the closest servers to get from speedtest.net, used as random pool of servers to test against
+slowretry="1"			#* When speed is below slowspeed, how many retries of random servers before running full tests
+max_err_retry="3"		#* Max servers to test if an error is encountered in slowcheck
+numslowservers="8"		#* How many of the closest servers from list to test if slow speed has been detected, tests all if not set
+precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if speed is higher then values set below
+precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
+precheck_down="50"		#* Download speed in unit defined above that blocks slowcheck
+precheck_up="50"		#* Upload speed in unit defined above that blocks slowcheck
+precheck_ssh_host="192.168.1.1" #* If set, precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
+						#* remote machine needs to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
+						#* copy SSH keys to remote machine if you don't want to be asked for password at start, guide: https://www.ssh.com/ssh/copy-id
+precheck_ssh_user="admin" #* Username for ssh connection
+precheck_ssh_nd="auto"  #* Network interface on remote machine to get speeds from, set to "auto" if unsure
+waittime="00:20:00"		#* Default wait timer between slowchecks, format: "HH:MM:SS"
+slowwait="00:10:00"		#* Time between tests when slow speed has been detected, uses wait timer if unset, format: "HH:MM:SS"
+idle="false"			#* If "true", resets timer if keyboard or mouse activity is detected in XServer
+# idletimer="00:30:00"	#* If set and idle="true", the script uses this timer until first test, then uses standard wait time,
+						#* any X Server activity resets back to idletimer, format: "HH:MM:SS"
+displaypause="false"	#* If "true" automatically pauses timer when display is on, unpauses when off, overrides idle="true" if set, needs xset to work
+paused="false"			#* If "true", the timer is paused at startup, ignored if displaypause="true"
+startuptest="false"		#* If "true" and paused="false", tests speed at startup before timer starts
+main_menu_start="shown" #* The status of the main menu at start, possible values: "shown", "hidden"
+graph_start="shown"		#* The status of the speed graph at start, possible values: "shown", "hidden"
+loglevel="2"				#* 0 : No logging
+						#* 1 : Log only when slow speed has been detected
+						#* 2 : Also log slow speed check
+						#* 3 : Also log server updates
+						#* 4 : Log all including forced tests
+logdir="$HOME/spdtest-logs" #* Logfile save directory
+quiet_start="true"		#* If "true", don't print serverlist and routelist at startup
+maxlogsize="1024"		#* Max logsize (in kilobytes) before log is split
+logcompress="gzip"		#* Command for compressing logs, only log splits beyond the last split is compressed, disabled if not set
+# custom_log=""			#* Custom logfile (full path), if a custom logfile is set log splitting is disabled
+max_buffer="1000"		#* Max number of lines to buffer in internal scroll buffer
+buffer_save="true"		#* Save buffer to disk on exit and restore on start
+mtr="true"				#* Set "false" to disable route testing with mtr, automatically set to "false" if mtr is not found in PATH
+mtr_internal="true"		#* Use hosts from full test with speeds below $slowspeed in mtr test
+mtr_internal_ok="false"	#* Use hosts from full test with speeds above $slowspeed in mtr test
+# mtr_internal_max=""	#* Set max hosts to add from full test
+mtr_external="false"	#* Use hosts from route.cfg, see route.cfg.sample for formatting
+mtrpings="25"			#* Number of pings sent with mtr
+testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
+testnum="1"				#* Number of times to loop full tests in testonly mode
+
+ookla_speedtest="speedtest"	#* Command or full path to official speedtest client 
+
+trace_errors="true"		#* In event of error print line number of offending command to $HOME/.config/spdtest/errors
+```
+
+#### route.cfg.sample: (rename to route.cfg to use additional hosts in route test)
+```bash
+#? List of routes to test with mtr
+#? Format:
+#? routelista+=("host")
+#? routelistdesc["host"]=("Name")
+#? routelistport["host"]=("port")  'Set port to "auto" if you don't want to set a custom port!'
+
+routelista+=("google.com")
+routelistdesc["google.com"]="Google"
+routelistport["google.com"]="auto"
+
+routelista+=("reddit.com")
+routelistdesc["reddit.com"]="Reddit"
+routelistport["reddit.com"]="auto"
+
+routelista+=("twitch.tv")
+routelistdesc["twitch.tv"]="Twitch"
+routelistport["twitch.tv"]="auto"
+
+routelista+=("amazon.com")
+routelistdesc["amazon.com"]="Amazon"
+routelistport["amazon.com"]="auto"
+```
+
 ## Dependencies
 
 **bash** (v4.4 or later) Script functionality might brake with earlier versions.  
