@@ -652,7 +652,7 @@ colorize() { #? Make the text pretty using a slightly modified version of grc, u
 	else
 		fileline="io.StringIO(inputvar)"
 	fi
-	if ((grc_err>=10)); then echo -e "$input"; return; fi
+	if ((grc_err>=10)); then echo -e "$colorize_input"; return; fi
 python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
 from __future__ import print_function
 import sys, os, string, re, signal, errno, io
@@ -815,7 +815,7 @@ while 1:
 EOF
 	local status=$?
 	grc_err=$((grc_err+status))
-	if ((status!=0)); then echo -e "$input"; fi
+	if ((status!=0)); then echo -e "$colorize_input"; fi
 }
 
 contains() { #? Function for checking if a value is contained in an array, arguments: <"${array[@]}"> <"value">
