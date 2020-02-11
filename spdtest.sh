@@ -22,7 +22,7 @@ precheck="true"			#* Check current bandwidth usage before slowcheck, blocks if s
 precheck_samplet="5"	#* Time in seconds to sample bandwidth usage, defaults to 5 if not set
 precheck_down="50"		#* Download speed in unit defined above that blocks slowcheck
 precheck_up="50"		#* Upload speed in unit defined above that blocks slowcheck
-precheck_ssh_host="192.168.1.1" #* If set, precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
+# precheck_ssh_host="192.168.1.1" #* If set, precheck will fetch data from /proc/net/dev over SSH, for example from a router running linux
 						#* remote machine needs to have: "/proc/net/dev" and be able to run commands "ip route" and "grep"
 						#* copy SSH keys to remote machine if you don't want to be asked for password at start, guide: https://www.ssh.com/ssh/copy-id
 precheck_ssh_user="admin" #* Username for ssh connection
