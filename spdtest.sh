@@ -140,7 +140,6 @@ logfile=""
 buffsize=0
 buffpos=0
 buffpid=""
-ip_address=""
 pause_override=0
 trace_msg=""
 scroll_symbol=""
@@ -526,8 +525,6 @@ else
 	unset is_good good_device
 fi
 
-ip_address=$(ip addr show "$net_device" | grep 'inet '| sed -r "s/.*inet\s([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*).*/\1/")
-if ! ping -qc1 -I "$net_device" -w1 "$ip_address" > /dev/null 2>&1; then echo "Could not get IP address for interface $net_device"; exit 1; fi
 
 if [[ -n $precheck_ssh_host && -n $precheck_ssh_user ]]; then
 	precheck_ssh="${precheck_ssh_user}@${precheck_ssh_host}"
@@ -558,7 +555,9 @@ fi
 assasinate() { #? Silently kill running process if not already dead
 	local i
 	for i in "$@"; do
-	if kill -0 "$i" >/dev/null 2>&1; then kill "$i" >/dev/null 2>&1 &
+	if kill -0 "$i" >/dev/null 2>&1; then 
+	kill "$i" >/dev/null 2>&1 &
+	wait "$i" >/dev/null 2>&1 &
 	fi 
 	done
 }
@@ -1395,7 +1394,7 @@ class Speedtest(object):
 		if (servers or exclude) and not self.servers:
 			raise NoMatchedServers()
 		return self.servers
-speedtest = Speedtest(source_address = '$ip_address')
+speedtest = Speedtest()
 try:
 	speedtest.get_servers()
 except (ServersRetrievalError,) + HTTP_ERRORS:
