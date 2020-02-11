@@ -2105,11 +2105,9 @@ testspeed() { #? Using official Ookla speedtest client
 		if ((${#testlista[@]}>1)) && not slowgoing; then
 			tl=$(random array_value testlista)
 		elif ((${#testlista[@]}>1)) && now slowgoing; then
-			rnum=${rndbkp[$xl]}
-			tl=${testlista[$rnum]}
+			tl=${rndbkp[$xl]}
 		else
 			tl=${testlista[0]}
-			rnum=0
 		fi
 	fi
 
