@@ -2295,8 +2295,8 @@ testspeed() { #? Using official Ookla speedtest client
 	testing=0
 }
 
- toggle() { #? Toggle a variables true or false state
-	if [[ -z $1 || -z ${!1} ]]; then return; fi
+ toggle() { #? Toggle a variables true or false state, unset variables becomes true, any set variable that isn't "0" or "false" becomes false
+	if [[ -z $1 ]]; then return; fi
 	if [[ "$#" -gt 1 ]]; then
 		local i
 		for i in "$@"; do
@@ -2305,11 +2305,14 @@ testspeed() { #? Using official Ookla speedtest client
 		return
 	fi
 	local var; declare -n var="$1"
-	if [[ $var == "0" ]]; then var=1
-	elif [[ $var =~ false|False|FALSE ]]; then var="true"
-	elif [[ $var == "1" ]]; then var=0
-	elif [[ $var =~ true|True|TRUE ]]; then var="false"
-	fi
+	#if [[ -z $var ]]; then var="1"
+	case $var in
+	false|False|FALSE) var="true";;
+	true|True|TRUE) var="false";;
+	0|"") var=1;;
+	[0-9]*) var=0;;
+	*) var="false";;
+	esac
 }
 
 traperr() {
