@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# indent type=tab
+# tab size=4
 # shellcheck disable=SC1090  #can't follow non constant source
 # shellcheck disable=SC2034  #unused variables
 # shellcheck disable=SC2001 #sed
@@ -1968,8 +1970,7 @@ random() { #? Random/shuffle (number[s]) or (number[s] in array) or (value[s] in
 		echo -n "$(shuf -i "$2" -n "$x" $rnd_src)"
 
 	elif [[ $1 == array_int && -n $2 ]]; then #? Random number[s] between 0 and array size, usage: random array_int "arrayname" ["amount"] ; use "*" as amount for all in random order
-		#shellcheck disable=SC2016
-		local arr_int='${#'"$2"'[@]}'; eval arr_int="$arr_int"
+		local arr_int arr_tmp; declare -n arr_tmp="$2"; arr_int=${#arr_tmp[@]}
 		if [[ $x == "*" ]] || ((x>arr_int)); then x=$arr_int; fi
 		echo -n "$(random int "0-$((arr_int-1))" "$x")"
 
@@ -2294,7 +2295,7 @@ testspeed() { #? Using official Ookla speedtest client
 	testing=0
 }
 
-toggle() { #? Toggle a variables true or false state
+ toggle() { #? Toggle a variables true or false state
 	if [[ -z $1 || -z ${!1} ]]; then return; fi
 	if [[ "$#" -gt 1 ]]; then
 		local i
@@ -2303,10 +2304,11 @@ toggle() { #? Toggle a variables true or false state
 		done
 		return
 	fi
-	if [[ ${!1} == "0" ]]; then eval "$1=1"
-	elif [[ ${!1} =~ false|False|FALSE ]]; then eval "$1=true"
-	elif [[ ${!1} == "1" ]]; then eval "$1=0"
-	elif [[ ${!1} =~ true|True|TRUE ]]; then eval "$1=false"
+	local var; declare -n var="$1"
+	if [[ $var == "0" ]]; then var=1
+	elif [[ $var =~ false|False|FALSE ]]; then var="true"
+	elif [[ $var == "1" ]]; then var=0
+	elif [[ $var =~ true|True|TRUE ]]; then var="false"
 	fi
 }
 
