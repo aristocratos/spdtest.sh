@@ -166,6 +166,7 @@ graph_box+=("│                                                                
 #graph_box+=("│     ⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒  │")
 graph_box+=("└──────────────────────────────────────────────────────────────────────────────┘")
 graph_box+=("⠓⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒")
+graph_symbol=(" " "⡀" "⣀" "⣄" "⣤" "⣦" "⣴" "⣶" "⣷" "⣾" "⣿")
 #? Menu format "Text".<underline position>."color"
 menu_array=(
 	"Quit.1.red"
@@ -1512,21 +1513,12 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 	if ((op>=5)); then op=1; else op=8; fi
 	p_symbols=$((max_speed/10))
 	tput sc
-	tput cup $ypos $xpos; echo -en "${dark}${graph_box[0]}"
-	#tput cup $((ypos+1)) $xpos; echo -en "${graph_box[1]}"
-	
-	for((i=0;i<13;i++)); do
-		tput cup $((ypos+i+1)) $xpos; echo -en "${dark}${graph_box[1]}"
-	done
-	yposb=$((ypos+i+1))
-	#tput cup $((yposb-2)) $xpos; echo -en "${graph_box[3]}"
-	#tput cup $((yposb-1)) $xpos; echo -en "${graph_box[1]}"
-	tput cup $((yposb)) $xpos; echo -en "${graph_box[2]}${reset}"
+
 
 	
 	if [[ $1 == create ]]; then
-		tput cup $((ypos+5)) $((xpos+35)); echo -en "${bold}Loading..."
-		tput cup $((ypos+6)) $((xpos+33)); echo -en "$(progress 0 "" "${green}")${reset}"
+		#tput cup $((ypos+5)) $((xpos+35)); echo -en "${bold}Loading..."
+		#tput cup $((ypos+6)) $((xpos+33)); echo -en "$(progress 0 "" "${green}")${reset}"
 		for((i=0;i<10;i++)); do
 			max_text=$(echo "scale=1; $max_speed-($i*($max_speed/10))" |bc ); max_text=${max_text%.*}
 			if (( max_text<(slowspeed*op) )); then color="${bright_red}"
@@ -1547,14 +1539,14 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 			if [[ -z $second_date && ${g_date[-$((70+graph_scroll-ipos))]} != "$first_date" ]]; then second_date=${g_date[-$((70+graph_scroll-ipos))]}
 			elif [[ -n $second_date && ${g_date[-$((70+graph_scroll-ipos))]} != "$second_date" ]]; then second_date=${g_date[-$((70+graph_scroll-ipos))]}; fi
 
-			if ((${ipos:(-1)}==0)); then tput cup $((ypos+6)) $((xpos+33)); echo -en "${bold}$(progress $((ipos*100/g_width)) "" "${green}")${reset}"; fi
+			#if ((${ipos:(-1)}==0)); then tput cup $((ypos+6)) $((xpos+33)); echo -en "${bold}$(progress $((ipos*100/g_width)) "" "${green}")${reset}"; fi
 			sval_op=$sval
 			for((ih=9;ih>=0;ih--)); do
 				if ((sval_op<=0)); then graph_array[$ih]="${graph_array[$ih]} "
 				elif ((sval_op<=p_symbols)); then	
-					graph_array[$ih]="${graph_array[$ih]}$(graph_symbol $sval_op $p_symbols)"
+					graph_array[$ih]="${graph_array[$ih]}${graph_symbol[$(( (sval_op*100/p_symbols)/10 ))]}"
 				else
-					graph_array[$ih]="${graph_array[$ih]}$(graph_symbol)"
+					graph_array[$ih]="${graph_array[$ih]}${graph_symbol[10]}"
 				fi
 				sval_op=$((sval_op-p_symbols))
 			done
@@ -1570,7 +1562,7 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 			fi
 			((++time_x))
 		done
-		tput cup $((ypos+6)) $((xpos+33)); echo -en "${bold}$(progress 100 "" "${green}")${reset}"
+		#tput cup $((ypos+6)) $((xpos+33)); echo -en "${bold}$(progress 100 "" "${green}")${reset}"
 		graph_array[10]="${bold}${white}$timeout${reset}"
 
 		if ((graph_scroll==graph_len-70)); then da1=${dark}
@@ -1579,6 +1571,14 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 		if [[ -n $second_date ]]; then timeline="$timeline to $second_date"; fi
 		graph_array[11]="$(spaces $((31-(${#timeline}/2))) )${da1}←${reset} ${bold}$timeline ${da2}→${reset}        "
 	fi
+
+	tput cup $ypos $xpos; echo -en "${dark}${graph_box[0]}"
+	
+	for((i=0;i<13;i++)); do
+		tput cup $((ypos+i+1)) $xpos; echo -en "${dark}${graph_box[1]}"
+	done
+	yposb=$((ypos+i+1))
+	tput cup $((yposb)) $xpos; echo -en "${graph_box[2]}${reset}"
 
 	tput cup $((ypos+1)) $((xpos+2)); echo -en "${reset}${bold}Mbps${reset}"
 	tput cup $((yposb-2)) $((xpos+6)); echo -en "${dark}${graph_box[3]}${reset}"
@@ -1590,19 +1590,6 @@ graph_draw() { #? Draw graph to memory and/or draw from memory, usage graph_draw
 	
 	tput rc
 }
-
-graph_symbol() { #? Calculate current speed percentage of max speed and return symbol, usage: graph_symbol "current speed" "max speed"
-	if [[ -z $1 ]]; then echo -n "⠿"; return; fi
-	local x=$1
-	local y=$2
-	local val=$((x*100/y))
-	if ((val<=25)); then echo -n "⠤"
-	elif ((val<=50)); then echo -n "⠶"
-	elif ((val<=75)); then echo -n "⠾"
-	else echo -n "⠿"
-	fi
-}
-
 
 inputwait() { #? Timer and input loop
 	gen_menu
@@ -1628,7 +1615,7 @@ inputwait() { #? Timer and input loop
 	unset IFS
 
 
-	while [[ $secs -gt 0 ]]; do
+	until ((secs==0)); do
 		tput sc; tput cup $titleypos $(( (width / 2)-4 ))
 		if now paused && not timer_menu; then bl="$dark"; else bl=""; fi
 		if ((secs<=10)); then hcolor=$red; else hcolor=$white; fi			
