@@ -2043,11 +2043,8 @@ running() { if kill -0 "$1" >/dev/null 2>&1; then return 0; else return 1; fi; }
 
 not_running() { if running "$1"; then return 1; else return 0; fi; } #? Returns true if process is NOT running, usage: not_running "process pid"
 
-spaces() { #? Echoes back spaces, usage: spaces "number of spaces"
-	local i
-	for((i=0;i<$1;i++)); do
-		echo -en " "
-	done
+spaces() { #? Prints back spaces, usage: spaces "number of spaces"
+	printf "%${1}s" "" 
 }
 
 tcount() { #? Run timer count and write to shared memory, meant to be run in background
