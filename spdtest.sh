@@ -2075,6 +2075,7 @@ testspeed() { #? Using official Ookla speedtest client
 	local tests=0
 	local err_retry=0
 	local xl=1
+	local pidcount
 	local routetemp routeadd
 	unset 'errorlist[@]'
 	unset 'routelistb[@]'
@@ -2179,7 +2180,9 @@ testspeed() { #? Using official Ookla speedtest client
 		
 		#? ------------------------------------Checks--------------------------------------------------------------
 		if now broken; then break; fi
-		if [[ $mode == "full" ]]; then wait $speedpid || true; fi
+		pidcount=0
+		if [[ $mode == "full" ]]; then while running $speedpid && ((pidcount<100)); do sleep 0.1; ((++pidcount)); done ; fi
+		if running $speedpid; then assasinate $speedpid; fi
 		if now slowerror; then
 			if [[ $stype == "log" ]]; then warnings="ERROR: $(echo "$speedstring" | jq -r '.message')"
 			elif [[ -z $down_speed ]]; then warnings="ERROR: Could not test server!"
@@ -2550,7 +2553,7 @@ z_main_loop() {
 		elif ((lastspeed<=slowspeed)) && not slowerror; then
 			testspeed "full"
 			routetest
-			detects=$((detects + 1))
+			((++detects))
 			if [[ -n $slowwait ]]; then old waittime save; waittime=$slowwait; fi
 
 		elif now slowgoing && not slowerror; then
