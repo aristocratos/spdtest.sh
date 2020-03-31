@@ -675,7 +675,7 @@ signal.signal(signal.SIGINT, signal.SIG_IGN)
 def add2list(clist, m, patterncolour):
 	for group in range(0, len(m.groups()) +1):
 		if group < len(patterncolour):
-			clist.append((m.start(group), m.end(group), patterncolour[group]))s
+			clist.append((m.start(group), m.end(group), patterncolour[group]))
 		else:
 			clist.append((m.start(group), m.end(group), patterncolour[0]))
 def get_colour(x):
