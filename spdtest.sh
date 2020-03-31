@@ -84,9 +84,10 @@ create_config() { #? Creates a new config file with default values from above
 
 save_config() { #? Save variables to config file, usage: save_config "var1" ["var2"] ["var3"]...
 	if [[ -z $1 ]]; then return; fi
-	local var
+	local var tmp_conf
+	tmp_conf="$(<"$config_file")"
 	for var in "$@"; do
-	if [[ $(<"$config_file") =~ $var ]]; then
+	if [[ $tmp_conf =~ $var ]]; then
 		sed -Ei "s;\#*\s*($var=\"?)[A-Za-z0-9\_\+\/\:\.\#\'\$\-]*(\"?\s?\t*.*);\1${!var}\2;g" "$config_file"
 	else
 		echo "${var}=\"${!var}\"" >> "$config_file"
@@ -219,14 +220,23 @@ reverse="\e[7m"
 dark="\e[2m"
 italic="\e[3m"
 
-black="\e[30m"
-red="\e[31m"
-green="\e[32m"
-yellow="\e[33m"
-blue="\e[34m"
-magenta="\e[35m"
-cyan="\e[36m"
-white="\e[37m"
+# black="\e[30m"
+# red="\e[31m"
+# green="\e[32m"
+# yellow="\e[33m"
+# blue="\e[34m"
+# magenta="\e[35m"
+# cyan="\e[36m"
+# white="\e[37m"
+
+black="\e[90m"
+red="\e[91m"
+green="\e[92m"
+yellow="\e[93m"
+blue="\e[94m"
+magenta="\e[95m"
+cyan="\e[96m"
+white="\e[97m"
 
 bright_black="\e[30;90m"
 bright_red="\e[31;91m"
@@ -659,13 +669,13 @@ python3 - << EOF #? Unmodified source for grc at https://github.com/garabik/grc
 from __future__ import print_function
 import sys, os, string, re, signal, errno, io
 colours = {'none':"", 'default':"\033[0m", 'bold':"\033[1m", 'underline':"\033[4m", 'blink':"\033[5m", 'reverse':"\033[7m", 'concealed':"\033[8m",
-			'black':"\033[30m",  'red':"\033[31m", 'green':"\033[32m", 'yellow':"\033[33m", 'blue':"\033[34m", 'magenta':"\033[35m", 'cyan':"\033[36m", 'white':"\033[37m",
+			'black':"\033[90m",  'red':"\033[91m", 'green':"\033[92m", 'yellow':"\033[93m", 'blue':"\033[94m", 'magenta':"\033[95m", 'cyan':"\033[96m", 'white':"\033[97m",
 			'previous':"prev", 'unchanged':"unchanged", 'dark':"\033[2m", 'italic':"\033[3m", 'rapidblink':"\033[6m", 'strikethrough':"\033[9m",}
 signal.signal(signal.SIGINT, signal.SIG_IGN)
 def add2list(clist, m, patterncolour):
 	for group in range(0, len(m.groups()) +1):
 		if group < len(patterncolour):
-			clist.append((m.start(group), m.end(group), patterncolour[group]))
+			clist.append((m.start(group), m.end(group), patterncolour[group]))s
 		else:
 			clist.append((m.start(group), m.end(group), patterncolour[0]))
 def get_colour(x):
@@ -2491,6 +2501,7 @@ if now trace_errors || now debug; then
 	trace_errors="true"
 	set -o errtrace
 	trap traperr ERR
+	exec 2>>"${config_dir}errors"
 fi
 
 if now buffer_save && [[ -s "${config_dir}.buffer" ]]; then cp -f "${config_dir}.buffer" "$bufferfile" >/dev/null 2>&1; buffer "redraw" 0; fi
