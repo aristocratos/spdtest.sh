@@ -1784,7 +1784,11 @@ logsplit() { #? Rename logfile, compress and create new if size is over $logsize
 			rm -f "$logfile"
 			mv "${logdir}tmp" "$logfile"
 			if now graph; then graph off; graph on; fi
-			if [[ -n $logcompress && -e "${logdir}spdtest.log.2" ]]; then $logcompress "${logdir}spdtest.log.2"; fi
+			if [[ -n $logcompress && -e "${logdir}spdtest.log.2" ]]; then
+				local compfile="${logdir}spdtest.$(date +%d%b%Y)"
+				mv "${logdir}spdtest.log.2" "$compfile"
+				$logcompress "$compfile"
+				fi
 		fi
 	fi
 }
