@@ -24,6 +24,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+declare -x LC_MESSAGES="C" LC_NUMERIC="C"
+
 #?> Start variables ------------------------------------------------------------------------------------------------------------------>
 #? These are the default values and gets overridden by the config file at "$HOME/.config/spdtest/spdtest.cfg"
 aaa_config() { : ; } #! Do not remove this line!

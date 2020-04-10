@@ -153,6 +153,7 @@ LOG:
 **[Python 3](https://www.python.org/downloads)** (v3.7 or later) Needed for speedtest-cli, grc and getIdle.  
 
 **[speedtest](https://www.speedtest.net/apps/cli)** Official speedtest client from Ookla, needs to be in path or defined in config.
+Note: You will need to run speedtest manually in a terminal to accept license before first use.
 
 **[jq](https://stedolan.github.io/jq/)** Needed for json parsing.  
 
