@@ -1,0 +1,49 @@
+name: spdtest
+version: 'latest'
+summary: Internet speed test
+description: |
+    Internet speeds are tested against random servers from speedtest.net at an timed interval (defined by user). 
+    If slow speed (defined by user) is detected, then runs a number of download and upload test with optional route tests to servers and writes to a logfile.
+
+base: core18
+grade: stable
+confinement: strict
+
+license: Apache-2.0
+
+apps:
+  spdtest:
+    command: sh /usr/bin/spdtest.sh
+    environment:
+      LC_ALL: C.UTF-8
+    plugs:
+      - network
+      - home
+      
+parts:
+  spdtest:
+    source: https://github.com/kz6fittycent/spdtest.sh
+    source-type: git
+    plugin: nil
+    
+    build-packages:
+      - speedtest-cli
+      - python3
+      - jq
+      - grc
+      - mtr
+      - less
+      
+    stage-packages:
+      - speedtest-cli
+      - python3
+      - jq
+      - grc
+      - mtr
+      - less
+      
+  publish:
+    plugin: dump
+    source: .
+    organize:
+      ./spdtest.sh: /usr/bin/spdtest.sh
