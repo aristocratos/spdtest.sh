@@ -13,7 +13,7 @@ license: Apache-2.0
 
 apps:
   spdtest:
-    command: sh $SNAP/usr/bin/spdtest.sh
+    command: bash $SNAP/usr/bin/spdtest.sh
     environment:
       LC_ALL: C.UTF-8
     plugs:
