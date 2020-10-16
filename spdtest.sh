@@ -76,7 +76,7 @@ mtrpings="25"			#* Number of pings sent with mtr
 testonly="false" 		#* If "true", never enter UI mode, always run full tests and quit
 testnum="1"				#* Number of times to loop full tests in testonly mode
 
-ookla_speedtest="$SNAP/usr/bin/speedtest"	#* Command or full path to official speedtest client SNAP DIR added - for testing
+ookla_speedtest="usr/bin/speedtest"	#* Command or full path to official speedtest client SNAP DIR added - for testing
 
 trace_errors="true"		#* In event of error print line number of offending command to $HOME/.config/spdtest/errors
 aaz_config() { : ; } #! Do not remove this line!
