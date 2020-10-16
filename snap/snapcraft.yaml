@@ -28,9 +28,9 @@ parts:
     
     override-build: |
      apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 379CE192D401AB61
-     echo "deb https://ookla.bintray.com/debian focal main" | sudo tee  /etc/apt/sources.list.d/speedtest.list
-     apt update
-     apt install speedtest
+     echo "deb https://ookla.bintray.com/debian focal main" | tee  /etc/apt/sources.list.d/speedtest.list
+     apt update -yu
+     apt install speedtest -y
      
     build-packages:
       - python3
@@ -41,6 +41,8 @@ parts:
       - gnupg1 
       - apt-transport-https 
       - dirmngr
+      - software-properties-common
+      - apt-utils      
       
     stage-packages:
       - speedtest
