@@ -36,7 +36,6 @@ parts:
      sudo apt-get install speedtest
      
     build-packages:
-      - speedtest
       - python3
       - jq
       - grc
