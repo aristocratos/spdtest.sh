@@ -13,24 +13,30 @@ license: Apache-2.0
 
 apps:
   spdtest:
-    command: bash $SNAP/usr/bin/spdtest.sh
+    command: sh /usr/bin/spdtest.sh
     environment:
-      LC_MESSAGES: C
-      LC_NUMERIC: C
+      LC_ALL: C.UTF-8
     plugs:
       - network
       - network-bind
       - home
       
+package-repositories:
+  - type: apt
+    deb-types: [deb]
+    components: [main]
+    name: generic
+    suites: [$SNAPCRAFT_APT_RELEASE]
+    key-id: 379CE192D401AB61
+    url: https://ookla.bintray.com/debian  
+  
 parts:
   spdtest:
-    source: https://github.com/kz6fittycent/spdtest.sh
+    source: https://github.com/aristocratos/spdtest.sh
     source-type: git
     plugin: nil
     
     build-packages:
-      - software-properties-common
-      - apt-utils    
       - speedtest-cli
       - python3
       - jq
@@ -40,11 +46,6 @@ parts:
       - gnupg1 
       - apt-transport-https 
       - dirmngr
-      
-    override-pull: |
-      export INSTALL_KEY=379CE192D401AB61
-      sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $INSTALL_KEY
-      echo "deb https://ookla.bintray.com/debian generic main" | sudo tee  /etc/apt/sources.list.d/speedtest.list
       
     stage-packages:
       - speedtest-cli
