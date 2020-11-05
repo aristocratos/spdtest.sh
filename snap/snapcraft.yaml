@@ -18,6 +18,7 @@ apps:
       LC_ALL: C.UTF-8
     plugs:
       - network
+      - network-bind
       - home
       
 parts:
@@ -26,12 +27,6 @@ parts:
     source-type: git
     plugin: nil
     
-    override-build: |
-     apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 379CE192D401AB61
-     echo "deb https://ookla.bintray.com/debian focal main" | tee  /etc/apt/sources.list.d/speedtest.list
-     apt update -yu
-     apt install speedtest -y
-     
     build-packages:
       - python3
       - jq
@@ -44,6 +39,10 @@ parts:
       - software-properties-common
       - apt-utils      
       
+  speedtest:
+    source: https://ookla.bintray.com/debian/:ookla-speedtest-1.0.0-x86_64-linux.deb
+    plugin: dump
+    
     stage-packages:
       - speedtest
       - python3
