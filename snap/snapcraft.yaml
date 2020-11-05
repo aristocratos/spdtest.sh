@@ -4,7 +4,6 @@ summary: Internet speed test
 description: |
     Internet speeds are tested against random servers from speedtest.net at an timed interval (defined by user). 
     If slow speed (defined by user) is detected, then runs a number of download and upload test with optional route tests to servers and writes to a logfile.
-
 base: core18
 grade: stable
 confinement: strict
@@ -13,7 +12,7 @@ license: Apache-2.0
 
 apps:
   spdtest:
-    command: bash $SNAP/usr/bin/spdtest.sh
+    command: sh /usr/bin/spdtest.sh
     environment:
       LC_ALL: C.UTF-8
     plugs:
@@ -22,37 +21,38 @@ apps:
       - home
       
 parts:
+  package-repositories:
+    - type: apt
+    deb-types: 
+      - deb
+      - deb-src
+    components: 
+      - main
+    suites: 
+      - $SNAPCRAFT_APT_RELEASE
+    key-id: 379CE192D401AB61
+    url: https://ookla.bintray.com/debian/dists/bionic/main/
+    
   spdtest:
-    source: https://github.com/kz6fittycent/spdtest.sh
+    source: https://github.com/aristocratos/spdtest.sh
     source-type: git
     plugin: nil
     
     build-packages:
+      - speedtest-cli
       - python3
       - jq
       - grc
       - mtr
       - less
-      - gnupg1 
-      - apt-transport-https 
-      - dirmngr
-      - software-properties-common
-      - apt-utils      
       
-  speedtest:
-    source: https://ookla.bintray.com/debian/:ookla-speedtest-1.0.0-x86_64-linux.deb
-    plugin: dump
-    
     stage-packages:
-      - speedtest
+      - speedtest-cli
       - python3
       - jq
       - grc
       - mtr
       - less
-      - gnupg1 
-      - apt-transport-https 
-      - dirmngr      
       
   publish:
     plugin: dump
