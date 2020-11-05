@@ -4,6 +4,7 @@ summary: Internet speed test
 description: |
     Internet speeds are tested against random servers from speedtest.net at an timed interval (defined by user). 
     If slow speed (defined by user) is detected, then runs a number of download and upload test with optional route tests to servers and writes to a logfile.
+    
 base: core18
 grade: stable
 confinement: strict
@@ -20,19 +21,16 @@ apps:
       - network-bind
       - home
       
+package-repositories:
+  - type: apt
+    deb-types: [deb]
+    name: generic
+    components: []
+    suites: [/]
+#    key-id: 379CE192D401AB61
+    url: https://ookla.bintray.com/debian  
+  
 parts:
-  package-repositories:
-    - type: apt
-    deb-types: 
-      - deb
-      - deb-src
-    components: 
-      - main
-    suites: 
-      - $SNAPCRAFT_APT_RELEASE
-    key-id: 379CE192D401AB61
-    url: https://ookla.bintray.com/debian/dists/bionic/main/
-    
   spdtest:
     source: https://github.com/aristocratos/spdtest.sh
     source-type: git
@@ -45,6 +43,9 @@ parts:
       - grc
       - mtr
       - less
+      - gnupg1 
+      - apt-transport-https 
+      - dirmngr
       
     stage-packages:
       - speedtest-cli
@@ -53,6 +54,10 @@ parts:
       - grc
       - mtr
       - less
+      - gnupg1 
+      - apt-transport-https 
+      - dirmngr
+      
       
   publish:
     plugin: dump
